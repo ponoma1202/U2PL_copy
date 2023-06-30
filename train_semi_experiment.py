@@ -434,7 +434,7 @@ def train(
                     image_u,
                     label_u_aug.clone(),            # changed from label_u_aug => label_u_all
                     logits_u_aug.clone(),
-                    label_u.detach(),
+                    label_u,
                     mode=cfg["trainer"]["unsupervised"]["apply_aug"]
                 )
                 # _, label_u, _ = generate_unsup_data(

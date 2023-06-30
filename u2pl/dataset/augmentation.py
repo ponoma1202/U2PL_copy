@@ -540,6 +540,7 @@ def generate_unsup_data(data, target, logits, label_u, mode="cutout"):      # ad
             new_data.append((data[i] * mix_mask).unsqueeze(0))
             new_target.append(target[i].unsqueeze(0))
             new_logits.append((logits[i] * mix_mask).unsqueeze(0))
+            new_label_u.append(label_u[i].unsqueeze(0))
             continue
 
         if mode == "cutmix":
