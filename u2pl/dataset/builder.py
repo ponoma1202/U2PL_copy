@@ -2,6 +2,7 @@ import logging
 
 from .cityscapes import build_city_semi_loader, build_cityloader
 from .pascal_voc import build_voc_semi_loader, build_vocloader
+from .cryoem import build_cryo_semi_loader, build_cryoloader
 
 logger = logging.getLogger("global")
 
@@ -37,6 +38,19 @@ def get_loader(cfg, seed=0):
         logger.info("Get loader Done...")
         return train_loader_sup, val_loader
 
+    elif cfg_dataset["type"] == "cryo_semi":
+        train_loader_sup, train_loader_unsup = build_cryo_semi_loader(
+            "train", cfg, seed=seed
+        )
+        val_loader = build_cryoloader("val", cfg)
+        logger.info("Get loader Done...")
+        return train_loader_sup, train_loader_unsup, val_loader
+
+    elif cfg_dataset["type"] == "cryo":
+        train_loader_sup = build_cryoloader("train", cfg, seed=seed)
+        val_loader = build_cryoloader("val", cfg)
+        logger.info("Get loader Done...")
+        return train_loader_sup, val_loader
     else:
         raise NotImplementedError(
             "dataset type {} is not supported".format(cfg_dataset)

@@ -286,7 +286,7 @@ def validate(
         target_origin = labels.cpu().numpy()
 
         # start to calculate miou
-        intersection, union, target = intersectionAndUnion(             # replace with other metric like
+        intersection, union, target = intersectionAndUnion(
             output, target_origin, num_classes, ignore_label
         )
 

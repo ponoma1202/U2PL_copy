@@ -14,42 +14,47 @@ from . import augmentation as psp_trsform
 from .base import BaseDataset
 
 
-class voc_dset(BaseDataset):
+class cryoem(BaseDataset):
     def __init__(
-        self, data_root, data_list, trs_form, seed=0, n_sup=10582, split="val"
+        self, data_root, data_list, trs_form, seed=0, n_sup=10582, split="val"      #TODO: edit n_sup with total number of images
     ):
-        super(voc_dset, self).__init__(data_list)
+        super(cryoem, self).__init__(data_list)
         self.data_root = data_root
         self.transform = trs_form
         random.seed(seed)
-        if len(self.list_sample) >= n_sup and split == "train":     # if desired length, put images in random order
+        if len(self.list_sample) >= n_sup and split == "train":
             self.list_sample_new = random.sample(self.list_sample, n_sup)
-        elif len(self.list_sample) < n_sup and split == "train":            # if less than desired length, lengthen list with repeat images and randomly sample
+        elif len(self.list_sample) < n_sup and split == "train":
             num_repeat = math.ceil(n_sup / len(self.list_sample))
             self.list_sample = self.list_sample * num_repeat
 
             self.list_sample_new = random.sample(self.list_sample, n_sup)
-        else:                                                        # if in val dataset, keep list as is
+        else:
             self.list_sample_new = self.list_sample
 
     def __getitem__(self, index):
         # load image and its label
-        image_path = os.path.join(self.data_root, self.list_sample_new[index][0])
-        label_path = os.path.join(self.data_root, self.list_sample_new[index][1])
-        image = self.img_loader(image_path, "RGB")
-        label = self.img_loader(label_path, "L")
+        image_path = os.path.join(self.data_root, self.list_sample_new[index][0])       # gets name of images for training
+        label_path = os.path.join(self.data_root, self.list_sample_new[index][1])       # get name of images for validation
+        image = self.cryoem_loader(image_path)
+        label = self.cryoem_loader(label_path)
+        # TODO: tile based on Ashira's code
         image, label = self.transform(image, label)
-        return image[0], label[0, 0].long()
+        return image[0], label[0, 0].long()     # TODO: check why this is indexed in pascal_voc
 
-    def __len__(self):
+    def __len__(self):          # TODO: artificially lengthen epoch
         return len(self.list_sample_new)
 
+def tile():
+    # TODO: tile based on Ashira's code
+    return
 
-def build_transfrom(cfg):
+
+def build_transfrom(cfg):       # TODO: edit config file to input the right transforms
     trs_form = []
-    mean, std, ignore_label = cfg["mean"], cfg["std"], cfg["ignore_label"]
+    #mean, std, ignore_label = cfg["mean"], cfg["std"], cfg["ignore_label"]
     trs_form.append(psp_trsform.ToTensor())
-    trs_form.append(psp_trsform.Normalize(mean=mean, std=std))
+    trs_form.append(psp_trsform.Z_score())
     if cfg.get("resize", False):
         trs_form.append(psp_trsform.Resize(cfg["resize"]))
     if cfg.get("rand_resize", False):
@@ -71,7 +76,7 @@ def build_transfrom(cfg):
     return psp_trsform.Compose(trs_form)
 
 
-def build_vocloader(split, all_cfg, seed=0):
+def build_cryoloader(split, all_cfg, seed=0):
     cfg_dset = all_cfg["dataset"]
 
     cfg = copy.deepcopy(cfg_dset)
@@ -82,7 +87,7 @@ def build_vocloader(split, all_cfg, seed=0):
     n_sup = cfg.get("n_sup", 10582)
     # build transform
     trs_form = build_transfrom(cfg)
-    dset = voc_dset(cfg["data_root"], cfg["data_list"], trs_form, seed, n_sup)
+    dset = cryoem(cfg["data_root"], cfg["data_list"], trs_form, seed, n_sup)
 
     # build sampler
 #    sample = DistributedSampler(dset)
@@ -98,7 +103,7 @@ def build_vocloader(split, all_cfg, seed=0):
     return loader
 
 
-def build_voc_semi_loader(split, all_cfg, seed=0):
+def build_cryo_semi_loader(split, all_cfg, seed=0):
     cfg_dset = all_cfg["dataset"]
 
     cfg = copy.deepcopy(cfg_dset)
@@ -111,7 +116,7 @@ def build_voc_semi_loader(split, all_cfg, seed=0):
     # build transform
     trs_form = build_transfrom(cfg)
     trs_form_unsup = build_transfrom(cfg)
-    dset = voc_dset(cfg["data_root"], cfg["data_list"], trs_form, seed, n_sup, split)
+    dset = cryoem(cfg["data_root"], cfg["data_list"], trs_form, seed, n_sup, split)
 
     if split == "val":
         # build sampler
@@ -129,7 +134,7 @@ def build_voc_semi_loader(split, all_cfg, seed=0):
     else:
         # build sampler for unlabeled set
         data_list_unsup = cfg["data_list"].replace("labeled.txt", "unlabeled.txt")
-        dset_unsup = voc_dset(
+        dset_unsup = cryoem(
             cfg["data_root"], data_list_unsup, trs_form_unsup, seed, n_sup, split
         )
 

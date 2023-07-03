@@ -2,6 +2,7 @@ import logging
 
 from PIL import Image
 from torch.utils.data import Dataset
+import mrcfile
 
 
 class BaseDataset(Dataset):
@@ -28,7 +29,7 @@ class BaseDataset(Dataset):
                 ]
                 for line in open(d_list, "r")
             ]
-        else:
+        else:           # TODO: add cryoem to this dataset
             raise "unknown dataset!"
 
         if max_sample > 0:
@@ -44,6 +45,12 @@ class BaseDataset(Dataset):
         with open(path, "rb") as f:
             img = Image.open(f)
             return img.convert(mode)
+
+    def cryoem_loader(self, path):
+        with mrcfile.open(path) as mrc:
+            data = mrc.data.astype(float)
+            return data
+        # TODO: base it off of Ashira's code. See if keeping the image as a tensor works
 
     def __len__(self):
         return self.num_sample
