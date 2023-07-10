@@ -102,6 +102,19 @@ def main():
 
     model.cuda()
 
+    # start Mike's code
+    cpu_mem_percent_used = psutil.virtual_memory().percent
+    gpu_mem_percent_used, memory_total_info = get_gpu_memory()
+    gpu_mem_percent_used = [np.round(100 * x, 1) for x in gpu_mem_percent_used]
+
+    logging.info("GPU memory after student model is loaded.\t"
+                 "cpu_mem: {cpu_mem:2.1f}%\t"
+                 "gpu_mem: {gpu_mem}% of {total_mem}MiB\t".format(
+        cpu_mem=cpu_mem_percent_used,
+        gpu_mem=gpu_mem_percent_used,
+        total_mem=memory_total_info))  # GPU usage before loading student model
+    # end Mike's code
+
     sup_loss_fn = get_criterion(cfg)
 
     train_loader_sup, train_loader_unsup, val_loader = get_loader(cfg, seed=seed)
@@ -133,7 +146,22 @@ def main():
 
     # Teacher model
     model_teacher = ModelBuilder(cfg["net"])
+
     model_teacher = model_teacher.cuda()
+
+    # start Mike's code
+    cpu_mem_percent_used = psutil.virtual_memory().percent
+    gpu_mem_percent_used, memory_total_info = get_gpu_memory()
+    gpu_mem_percent_used = [np.round(100 * x, 1) for x in gpu_mem_percent_used]
+
+    logging.info("GPU memory after teacher model is loaded.\t"
+                 "cpu_mem: {cpu_mem:2.1f}%\t"
+                 "gpu_mem: {gpu_mem}% of {total_mem}MiB\t".format(
+        cpu_mem=cpu_mem_percent_used,
+        gpu_mem=gpu_mem_percent_used,
+        total_mem=memory_total_info))  # GPU usage before loading student model
+    # end Mike's code
+
     # model_teacher = torch.nn.parallel.DistributedDataParallel(
     #     model_teacher,
     #     device_ids=[local_rank],
@@ -369,7 +397,7 @@ def train(
         image_l, label_l = image_l.cuda(), label_l.cuda()
 
         image_u, label_u = next(loader_u_iter) #loader_u_iter.next()             # Get label for "unlabeled" image for accuracy calculation - VP
-        image_u, label_u = image_u.cuda(), label_u.cuda()
+        image_u, label_u = image_u.cuda(), label_u.cuda().detach()
         # For Mike's code
 
         if epoch < cfg["trainer"].get("sup_only_epoch", 1):
@@ -389,16 +417,6 @@ def train(
 
             model_teacher.train()
             teacher_out = model_teacher(image_l)
-
-            # start Mike's code
-            # Teacher's pseudo-labels vs ground truth in supervised environment
-            # pred_teach = teacher_out["pred"]
-            # pred_teach = F.interpolate(pred_teach, (h, w), mode="bilinear", align_corners=True)
-            #
-            # pred_teach = torch.argmax(pred_teach, dim=1)
-            # accuracy = torch.mean((pred_teach == label_l).type(torch.FloatTensor))
-            # train_stats.append_accumulate('teacher_sup_accuracy', accuracy.item())
-            # end Mike's code
 
             unsup_loss = 0 * rep.sum()
             contra_loss = 0 * rep.sum()
@@ -432,18 +450,11 @@ def train(
             ):
                 image_u_aug, label_u_aug, logits_u_aug, label_u = generate_unsup_data(           # changed to label_u_all for accuracy calculation
                     image_u,
-                    label_u_aug.clone(),            # changed from label_u_aug => label_u_all
+                    label_u_aug.clone(),
                     logits_u_aug.clone(),
-                    label_u,
+                    label_u.clone(),
                     mode=cfg["trainer"]["unsupervised"]["apply_aug"]
                 )
-                # _, label_u, _ = generate_unsup_data(
-                #     # changed to label_u_all for accuracy calculation
-                #     image_u,
-                #     label_u,  # changed from label_u_aug => label_u_all
-                #     logits_u_aug.clone(),
-                #     mode=cfg["trainer"]["unsupervised"]["apply_aug"],
-                # )
             else:
                 image_u_aug = image_u
 
@@ -459,11 +470,6 @@ def train(
             pred_u_large = F.interpolate(
                 pred_u, size=(h, w), mode="bilinear", align_corners=True
             )
-
-            # TODO: Add Pseudo-label student accuracy (student labels vs teacher labels)
-            # start Mike's code
-            # accuracy = torch.mean((pred_student == label_u_aug).type(torch.FloatTensor))
-            # train_stats.append_accumulate('student_vs_teacher_accuracy', accuracy.item())
 
             # TODO: Add student vs ground truth accuracy
             pred_student = torch.argmax(pred_u_large, dim=1)
@@ -498,7 +504,9 @@ def train(
 
             # unsupervised loss
             drop_percent = cfg["trainer"]["unsupervised"].get("drop_percent", 100)
-            percent_unreliable = (100 - drop_percent) * (1 - epoch / cfg["trainer"]["epochs"])
+            #percent_unreliable = (100 - drop_percent) * (1 - epoch / cfg["trainer"]["epochs"])
+            percent_unreliable = (100 - drop_percent) * ((0.5)**(epoch/50))         # changed this to fit with Mike's plateu scheduler
+            train_stats.append_accumulate('percent_unreliable', percent_unreliable)     # for debugging
             drop_percent = 100 - percent_unreliable
             unsup_loss = (
                     compute_unsupervised_loss(
@@ -517,9 +525,13 @@ def train(
                 contra_flag = "{}:{}".format(
                     cfg_contra["low_rank"], cfg_contra["high_rank"]
                 )
-                alpha_t = cfg_contra["low_entropy_threshold"] * (
-                    1 - epoch / cfg["trainer"]["epochs"]
-                )
+                # alpha_t = cfg_contra["low_entropy_threshold"] * (
+                #     1 - epoch / cfg["trainer"]["epochs"]
+                # )
+
+                # start my code
+                alpha_t = cfg_contra["low_entropy_threshold"] * ((0.5)**(epoch/50))     # changed this to fit with Mike's plateu scheduler
+                # end my code
 
                 with torch.no_grad():
                     prob = torch.softmax(pred_u_large_teacher, dim=1)
@@ -735,6 +747,7 @@ def train(
     train_stats.close_accumulate(epoch, 'teacher_pseudo_labeling_accuracy', method='avg')
     # train_stats.close_accumulate(epoch, 'student_vs_teacher_accuracy',method='avg')
     train_stats.close_accumulate(epoch,'student_pseudo_labeling_accuracy', method='avg')
+    train_stats.close_accumulate(epoch, 'percent_unreliable', method='avg')
     train_stats.add(epoch, 'train_wall_time', time.time() - start_time)
     # end Mike's code
 
@@ -793,7 +806,7 @@ def validate(
         loss = criterion(output, labels)
         train_stats.append_accumulate('val_loss', loss.item())
         pred = torch.argmax(output, dim=1)
-        accuracy = torch.mean((pred == labels).type(torch.FloatTensor))
+        accuracy = torch.mean((pred == labels).type(torch.FloatTensor))         # TODO: switch to per class accuracy calculation
         train_stats.append_accumulate('val_accuracy', accuracy.item())
         # end Mike's code
 

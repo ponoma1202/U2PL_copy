@@ -523,7 +523,7 @@ def generate_class_mask(pseudo_labels):
     mask = (pseudo_labels.unsqueeze(-1) == labels_select).any(-1)
     return mask.float()
 
-
+# for training accuracy - VP
 def generate_unsup_data(data, target, logits, label_u, mode="cutout"):      # added label_u argument to debug -VP
     batch_size, _, im_h, im_w = data.shape
     device = data.device
@@ -577,3 +577,49 @@ def generate_unsup_data(data, target, logits, label_u, mode="cutout"):      # ad
         torch.cat(new_label_u)
     )
     return new_data, new_target.long(), new_logits, new_label_u
+
+# original generate_unsup_data method - VP
+def generate_unsup_data(data, target, logits, mode="cutout"):      # added label_u argument to debug -VP
+    batch_size, _, im_h, im_w = data.shape
+    device = data.device
+
+    new_data = []
+    new_target = []
+    new_logits = []
+    for i in range(batch_size):
+        if mode == "cutout":
+            mix_mask = generate_cutout_mask([im_h, im_w], ratio=2).to(device)
+            target[i][(1 - mix_mask).bool()] = 255
+
+            new_data.append((data[i] * mix_mask).unsqueeze(0))
+            new_target.append(target[i].unsqueeze(0))
+            new_logits.append((logits[i] * mix_mask).unsqueeze(0))
+            continue
+
+        if mode == "cutmix":
+            mix_mask = generate_cutout_mask([im_h, im_w]).to(device)
+        if mode == "classmix":
+            mix_mask = generate_class_mask(target[i]).to(device)
+
+        new_data.append(
+            (
+                data[i] * mix_mask + data[(i + 1) % batch_size] * (1 - mix_mask)
+            ).unsqueeze(0)
+        )
+        new_target.append(
+            (
+                target[i] * mix_mask + target[(i + 1) % batch_size] * (1 - mix_mask)
+            ).unsqueeze(0)
+        )
+        new_logits.append(
+            (
+                logits[i] * mix_mask + logits[(i + 1) % batch_size] * (1 - mix_mask)
+            ).unsqueeze(0)
+        )
+
+    new_data, new_target, new_logits = (
+        torch.cat(new_data),
+        torch.cat(new_target),
+        torch.cat(new_logits)
+    )
+    return new_data, new_target.long(), new_logits

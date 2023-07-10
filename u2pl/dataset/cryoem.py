@@ -6,6 +6,8 @@ import random
 
 import numpy as np
 import torch
+import scipy
+import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, Dataset
 #from torch.utils.data.distributed import DistributedSampler
 from torchvision import transforms
@@ -16,7 +18,7 @@ from .base import BaseDataset
 
 class cryoem(BaseDataset):
     def __init__(
-        self, data_root, data_list, trs_form, seed=0, n_sup=10582, split="val"      #TODO: edit n_sup with total number of images
+        self, data_root, data_list, trs_form, seed=0, n_sup=24, split="val"      #TODO: edit n_sup with total number of images
     ):
         super(cryoem, self).__init__(data_list)
         self.data_root = data_root
@@ -38,17 +40,45 @@ class cryoem(BaseDataset):
         label_path = os.path.join(self.data_root, self.list_sample_new[index][1])       # get name of images for validation
         image = self.cryoem_loader(image_path)
         label = self.cryoem_loader(label_path)
-        # TODO: tile based on Ashira's code
+        image, label = tile(image, label)
         image, label = self.transform(image, label)
         return image[0], label[0, 0].long()     # TODO: check why this is indexed in pascal_voc
 
     def __len__(self):          # TODO: artificially lengthen epoch
         return len(self.list_sample_new)
 
-def tile():
-    # TODO: tile based on Ashira's code
-    return
+# Using PDF from generate_dist, cut random tile from image and return the tile and its label
+def tile(image, label):
+    # TODO: using gaussian filter, cut random tile and return the tile and its label
+    # use Ashira's cut_tile for this
+    # 1. sample random "center" (future center for tile) within the densest region of image according to PDF
+    # 2. using the center, cut the tile => apply augmentation such as rotation, flipping, etc (use U2PL's RandRotate, etc in augmentation.py)
 
+    return image, label
+
+# generates gaussian filter. Run filter through image 10 times to get the probability density function
+# From Ashira's code
+def generate_dist(mask, count=10, sigma=40, plotting=False):
+    dist = mask #.astype(float)
+    count = 10
+    for i in range(count):
+        dist = scipy.ndimage.gaussian_filter(dist, sigma, mode='reflect')
+    dist = dist/np.sum(dist)
+
+    if plotting:
+        fig = plt.figure()
+        # ax = fig.add_subplot(111, projection='3d')
+        x = y = np.arange(0, 4096)
+        X, Y = np.meshgrid(x, y)
+        Z = dist
+        # ax.plot_surface(X, Y, Z)
+        plt.imshow(Z,cmap='hot')
+        # ax.set_xlabel('X Label')
+        # ax.set_ylabel('Y Label')
+        # ax.set_zlabel('Z Label')
+        plt.show()
+
+    return dist
 
 def build_transfrom(cfg):       # TODO: edit config file to input the right transforms
     trs_form = []
@@ -84,7 +114,7 @@ def build_cryoloader(split, all_cfg, seed=0):
 
     workers = cfg.get("workers", 2)
     batch_size = cfg.get("batch_size", 1)
-    n_sup = cfg.get("n_sup", 10582)
+    n_sup = cfg.get("n_sup", 10582)         # TODO: Change n_sup
     # build transform
     trs_form = build_transfrom(cfg)
     dset = cryoem(cfg["data_root"], cfg["data_list"], trs_form, seed, n_sup)

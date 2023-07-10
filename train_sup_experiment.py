@@ -22,6 +22,7 @@ import torch.backends.cudnn as cudnn
 #import torch.distributed as dist
 import torch.nn.functional as F
 import yaml
+import cv2
 
 from u2pl.dataset.builder import get_loader
 from u2pl.models.model_helper import ModelBuilder
@@ -53,10 +54,9 @@ parser.add_argument("--prediction_dir", type=str, default="./predictions_trainin
 # parser.add_argument('--loss-eps', default=1e-4, type=float, help='loss value eps for determining early stopping loss equivalence.')
 # parser.add_argument('--num-lr-reductions', default=2, type=int)
 # parser.add_argument('--lr-reduction-factor', default=0.2, type=float)
-# parser.add_argument('--cycle-factor', default=2.0, type=float, help='Cycle factor for cyclic learning rate scheduler.')
 
-#logger = init_log("global", logging.INFO)
-#logger.propagate = 0
+logger = init_log("global", logging.INFO)
+logger.propagate = 0
 logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",             # Mike's logger
                         handlers=[logging.StreamHandler()])
@@ -202,12 +202,12 @@ def main():
         # Training
 
         # start for inference debugging
-        # if os.path.exists(args.prediction_dir):
-        #     logging.info("Prediction training directory exists, deleting")
-        #     shutil.rmtree(args.prediction_dir)
-        # os.makedirs(args.prediction_dir)
-        #
-        # data_list = iter(train_loader_sup.dataset.list_sample)
+        if os.path.exists(args.prediction_dir):
+            logging.info("Prediction training directory exists, deleting")
+            shutil.rmtree(args.prediction_dir)
+        os.makedirs(args.prediction_dir)
+
+        data_list = iter(train_loader_sup.dataset.list_sample)
         # end for inference debugging
 
         # TODO: Replace lr_scheduler with Mike's plateu_scheduler to test with his code
@@ -222,7 +222,7 @@ def main():
             #tb_logger,
             train_stats,             # for Mike's code
             is_unet,
-            #data_list
+            data_list
         )
 
         data_list = None
@@ -247,10 +247,10 @@ def main():
                 best_prec = prec
                 state["best_miou"] = prec
                 torch.save(
-                    state, osp.join(cfg["saver"]["snapshot_dir"], "ckpt_best.pth")
+                    model.state_dict(), osp.join(cfg["saver"]["snapshot_dir"], "best_state_dict.pth")
                 )
 
-            torch.save(state, osp.join(cfg["saver"]["snapshot_dir"], "ckpt.pth"))
+            torch.save(model.state_dict(), osp.join(cfg["saver"]["snapshot_dir"], "state-dict.pth"))
 
             # logger.info(
             #     "\033[31m * Currently, the best val result is: {:.2f}\033[0m".format(
@@ -305,7 +305,7 @@ def train(
     #tb_logger,
     train_stats,                     # for Mike's code
     is_unet,
-    #data_list
+    data_list
 ):
 
     model.train()                   #enables train mode => mean and variance get updated with every epoch
@@ -324,16 +324,6 @@ def train(
 
     # start Mike's code
     start_time = time.time()
-
-    # if args.cycle_factor is None or args.cycle_factor == 0:
-    #     cyclic_lr_scheduler = None
-    # else:
-    #     # capture the current learning rate of the optimizer to enable resetting it back to that value once this epoch is done
-    #     epoch_init_lr = optimizer.param_groups[0]['lr']
-    #     cyclic_lr_scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=(epoch_init_lr / args.cycle_factor),
-    #                                                             max_lr=(epoch_init_lr * args.cycle_factor),
-    #                                                             step_size_up=int(len(data_loader) / 2), cycle_momentum=False)
-    # end Mike's code
 
     batch_end = time.time()
     for step, tensor_dict in enumerate(data_loader):    # range(len(data_loader)):
@@ -377,25 +367,48 @@ def train(
         pred = torch.argmax(pred, dim=1)
 
         # start my inference debug code
-        # mean, std = cfg["dataset"]["mean"], cfg["dataset"]["std"]
-        # _image = (_image - mean) / std
-        # mask = pred.squeeze().cpu().numpy()
-        # colormap = create_pascal_label_colormap()
-        # if epoch >= 0:
-        #     for img in range(batch_size):
-        #         color_mask = colorful(mask[img], colormap)
-        #         image_path, _ = next(data_list)
-        #         image_name = image_path.split("/")[-1]
-        #         skimage.io.imsave(os.path.join(args.prediction_dir, image_name), np.uint8(color_mask), check_contrast=False)          # to debug inferencing
+        #mean, std = cfg["dataset"]["mean"], cfg["dataset"]["std"]
+        #_image = (_image - mean) / std
+        mask = pred.squeeze().cpu().numpy()
+        colormap = create_pascal_label_colormap()
+        if epoch >= 0:
+            for img in range(batch_size):
+                color_mask = colorful(mask[img], colormap)
+                image_path, _ = next(data_list)
+                image_name = image_path.split("/")[-1]
+                skimage.io.imsave(os.path.join(args.prediction_dir, image_name), np.uint8(color_mask), check_contrast=False)          # to debug inferencing
         # end my inference debug code
+
+        # start my training accuracy code
+        final_accuracy = []
+
+        for img in range(batch_size):
+            pred_cpy = pred[img].cpu().numpy().flatten()
+            label_cpy = label[img].cpu().numpy().flatten()
+            classes_pred = np.unique(pred_cpy)  # get all classes contained in predicted mask
+            classes_label = np.unique(label_cpy)
+
+            img_accuracy = []
+
+            # make pixel mask for all classes in ground truth and compare with the prediction
+            for id in classes_label:
+                if id == 255 or id == 0:
+                    continue
+                mask = np.full(pred_cpy.shape, id)
+                pred_mask = np.equal(pred_cpy, mask).astype(int)
+                label_mask = np.equal(label_cpy, mask).astype(int)
+                per_pixel_accuracy = cv2.bitwise_and(pred_mask, label_mask)
+
+                # Divide total number of correctly identified non background pixels, divide by total number of actual non background pixels there should be
+                total_accuracy = np.count_nonzero(per_pixel_accuracy) / np.count_nonzero(label_mask)
+                img_accuracy.append(total_accuracy)
+            final_accuracy.append(img_accuracy)
+
+        # end my training accuracy code
 
         accuracy = torch.mean((pred == label).type(torch.FloatTensor))
         train_stats.append_accumulate('train_accuracy', accuracy.item())
         train_stats.append_accumulate('learning_rates', optimizer.param_groups[0]['lr'])
-
-        # if cyclic_lr_scheduler is not None:
-        #     cyclic_lr_scheduler.step()
-        # end Mike's code
 
         batch_end = time.time()
         batch_times.update(batch_end - batch_start)
@@ -435,12 +448,6 @@ def train(
     train_stats.close_accumulate(epoch, 'train_accuracy', method='avg')
     train_stats.close_accumulate(epoch, 'learning_rates', method='avg')
     train_stats.add(epoch, 'train_wall_time', time.time() - start_time)
-
-    # if cyclic_lr_scheduler is not None:
-    #     # reset any leftover changes to the learning rate
-    #     for param_group in optimizer.param_groups:
-    #         param_group['lr'] = epoch_init_lr
-    # end Mike's code
 
 def get_img_path(cfg):
     data_list = []
@@ -510,7 +517,7 @@ def validate(
         loss = criterion(output, labels)
         train_stats.append_accumulate('val_loss', loss.item())
         pred = torch.argmax(output, dim=1)
-        accuracy = torch.mean((pred == labels).type(torch.FloatTensor))
+        accuracy = torch.mean((pred == labels).type(torch.FloatTensor))     # TODO: switch to per class accuracy calculation
         train_stats.append_accumulate('val_accuracy', accuracy.item())
         # end Mike's code
 
