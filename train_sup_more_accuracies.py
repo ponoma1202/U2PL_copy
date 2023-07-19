@@ -9,6 +9,7 @@ from datetime import datetime
 import shutil                                                   # For Mike's code
 
 import skimage
+import sklearn.metrics
 from sklearn.metrics import adjusted_rand_score
 
 from pytorch_utils import lr_scheduler as lr_scheduler_custom   # For Mike's code
@@ -46,9 +47,8 @@ parser.add_argument("--config", type=str, default="config.yaml")
 parser.add_argument("--seed", type=int, default=0)
 # parser.add_argument("--port", default=None, type=int)
 parser.add_argument("--output_dirpath", type=str, default="./stats")
-parser.add_argument("--network", type=str, default="resnet", help="Type of backbone to use: 'unet' or 'resnet'")
+parser.add_argument("--network", type=str, default="unet", help="Type of backbone to use: 'unet' or 'resnet'")
 parser.add_argument("--prediction_dir", type=str, default="./predictions_training")
-parser.add_argument("--lower_precision", type=bool, default=False, help="Enables gradient scaling for 16 bit floating point precision")
 
 # early stopping configuration
 # parser.add_argument('--patience', default=10, type=int, help='number of epochs past optimal to explore before early stopping terminates training.')
@@ -198,8 +198,6 @@ def main():
         train_stats.export(args.output_dirpath)  # update metrics data on disk
         train_stats.plot_all_metrics(output_dirpath=args.output_dirpath)
 
-        train_stats.add_global('batch size', cfg["dataset"]["batch_size"])
-
     #end Mike's code
 
         # Training
@@ -209,9 +207,8 @@ def main():
             logging.info("Prediction training directory exists, deleting")
             shutil.rmtree(args.prediction_dir)
         os.makedirs(args.prediction_dir)
-        #
+
         data_list = iter(train_loader_sup.dataset.list_sample)
-        scaler = torch.cuda.amp.GradScaler(enabled=args.lower_precision)  # enabled toggles this on or off
         # end for inference debugging
 
         # TODO: Replace lr_scheduler with Mike's plateu_scheduler to test with his code
@@ -226,8 +223,7 @@ def main():
             #tb_logger,
             train_stats,             # for plateau scheduler
             is_unet,
-            data_list,
-            scaler                     # for 16 bit float precision
+            data_list
         )
 
         data_list = None
@@ -310,8 +306,7 @@ def train(
     #tb_logger,
     train_stats,                     # for plateau scheduler
     is_unet,
-    data_list,
-    scaler                          # for 16 bit float precision
+    data_list
 ):
 
     model.train()                   #enables train mode => mean and variance get updated with every epoch
@@ -334,130 +329,104 @@ def train(
 
     batch_end = time.time()
     for step, tensor_dict in enumerate(data_loader):
-        with torch.cuda.amp.autocast(enabled=args.lower_precision):  # enabled toggles this on or off
-            batch_start = time.time()
-            data_times.update(batch_start - batch_end)
+        batch_start = time.time()
+        data_times.update(batch_start - batch_end)
 
-            i_iter = epoch * len(data_loader) + step        # step is the batch number
-            # lr = lr_scheduler.get_lr()
-            # learning_rates.update(lr[0])
-            # lr_scheduler.step()
+        i_iter = epoch * len(data_loader) + step        # step is the batch number
+        # lr = lr_scheduler.get_lr()
+        # learning_rates.update(lr[0])
+        # lr_scheduler.step()
 
-            image, label = tensor_dict                  # NOTE: Add third argument: img_path to debug image saving
+        image, label = tensor_dict                  # NOTE: Add third argument: img_path to debug image saving
 
-            batch_size, h, w = label.size()
+        batch_size, h, w = label.size()
+        image, label = image.cuda(), label.cuda()
+        outs = model(image)
 
-            # start checking if images from dataloader look good
-            # if epoch >= 0:
-            #     for img in range(batch_size):
-            #         # color_mask = colorful(mask[img], colormap)
-            #         image_path, _ = next(data_list)
-            #         image_name = image_path.split("/")[-1]
-            #         image = image[img].squeeze()
-            #         skimage.io.imsave(os.path.join(args.prediction_dir, image_name), np.uint8(image),
-            #                           check_contrast=False)
-            # end my code
+        if is_unet:
+            pred = outs
+        else:
+            pred = outs["pred"]
+            pred = F.interpolate(pred, (h, w), mode="bilinear", align_corners=True)
 
-            image, label = image.cuda(), label.cuda()
-            outs = model(image)
+        if "aux_loss" in cfg["net"].keys():
+            aux = outs["aux"]
+            aux = F.interpolate(aux, (h, w), mode="bilinear", align_corners=True)
+            loss = criterion([pred, aux], label)
+        else:
+            loss = criterion(pred, label)
 
-            if is_unet:
-                pred = outs
-            else:
-                pred = outs["pred"]
-                pred = F.interpolate(pred, (h, w), mode="bilinear", align_corners=True)
+        optimizer.zero_grad()                   # zeros out gradients to start with a clean slate for the next forward pass (accumulating gradients is unnecessary and computationally heavy)
+        loss.backward()                         # calculate loss during backprop
+        optimizer.step()                        # step in direction calculated from loss
 
-            if "aux_loss" in cfg["net"].keys():
-                aux = outs["aux"]
-                aux = F.interpolate(aux, (h, w), mode="bilinear", align_corners=True)
-                loss = criterion([pred, aux], label)
-            else:
-                loss = criterion(pred, label)
+        # gather all loss from different gpus
+        reduced_loss = loss.clone().detach()
+        #dist.all_reduce(reduced_loss)
+        losses.update(reduced_loss.item())
 
-            optimizer.zero_grad()                   # zeros out gradients to start with a clean slate for the next forward pass (accumulating gradients is unnecessary and computationally heavy)
-            #loss.backward()                         # calculate loss during backprop
-            #optimizer.step()                        # step in direction calculated from loss
+        # start Mike's code
+        train_stats.append_accumulate('train_loss', loss.item())
+        pred = torch.argmax(pred, dim=1)
 
-            # once you have the loss value computed
-            # scale it to undo fp16 interpretation
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
+        # start my inference debug code
+        mask = pred.squeeze().cpu().numpy()
+        colormap = create_pascal_label_colormap()
+        if epoch >= 0:
+            for img in range(batch_size):
+                color_mask = colorful(mask[img], colormap)
+                image_path, _ = next(data_list)
+                image_name = image_path.split("/")[-1]
+                skimage.io.imsave(os.path.join(args.prediction_dir, image_name), np.uint8(color_mask), check_contrast=False)          # to debug inferencing
+        # end my inference debug code
 
-            # step the optimizer
-            scaler.step(optimizer)
+        # TODO: start my adjusted random index (ARI) score and per class accuracy code
+        batch_class_accuracy, ARI = ARI_and_class_accuracy(pred.cpu().detach().numpy(), label.cpu().detach().numpy(), batch_size)
+        per_class_accuracy.append(batch_class_accuracy)
+        # end my per class accuracy code
 
-            # update the scaler to it can keep your activations in the appropriate range
-            scaler.update()
+        accuracy = torch.mean((pred == label / label.numel()).type(torch.FloatTensor))
+        train_stats.append_accumulate("ARI", ARI)
+        train_stats.append_accumulate('train_accuracy', accuracy.item())
+        train_stats.append_accumulate('learning_rates', optimizer.param_groups[0]['lr'])
 
-            # gather all loss from different gpus
-            reduced_loss = loss.clone().detach()
-            #dist.all_reduce(reduced_loss)
-            losses.update(reduced_loss.item())
+        batch_end = time.time()
+        batch_times.update(batch_end - batch_start)
 
+        if i_iter % 100 == 0 and rank == 0:
             # start Mike's code
-            train_stats.append_accumulate('train_loss', loss.item())
-            pred = torch.argmax(pred, dim=1)
+            cpu_mem_percent_used = psutil.virtual_memory().percent
+            gpu_mem_percent_used, memory_total_info = get_gpu_memory()
+            gpu_mem_percent_used = [np.round(100 * x, 1) for x in gpu_mem_percent_used]
+            # end Mike's code
 
-            # start my inference debug code
-            # mask = pred.squeeze().cpu().numpy()
-            # colormap = create_pascal_label_colormap()
-            # if epoch >= 0:
-            #     for img in range(batch_size):
-            #         color_mask = colorful(mask[img], colormap)
-            #         image_path, _ = next(data_list)
-            #         image_name = image_path.split("/")[-1]
-            #         skimage.io.imsave(os.path.join(args.prediction_dir, image_name), np.uint8(color_mask), check_contrast=False)          # to debug inferencing
-            # end my inference debug code
-
-            # TODO: start my adjusted random index (ARI) score and per class accuracy code
-            #batch_class_accuracy, ARI = ARI_and_class_accuracy(pred.cpu().detach().numpy(), label.cpu().detach().numpy(), batch_size)
-            #per_class_accuracy.append(batch_class_accuracy)
-            # end my per class accuracy code
-
-            accuracy = torch.mean((pred == label / label.numel()).type(torch.FloatTensor))
-            #train_stats.append_accumulate("ARI", ARI)
-            train_stats.append_accumulate('train_accuracy', accuracy.item())
-            train_stats.append_accumulate('learning_rates', optimizer.param_groups[0]['lr'])
-
-            batch_end = time.time()
-            batch_times.update(batch_end - batch_start)
-
-            if i_iter % 100 == 0 and rank == 0:
-                # start Mike's code
-                cpu_mem_percent_used = psutil.virtual_memory().percent
-                gpu_mem_percent_used, memory_total_info = get_gpu_memory()
-                gpu_mem_percent_used = [np.round(100 * x, 1) for x in gpu_mem_percent_used]
-                # end Mike's code
-
-                logging.info(
-                    "Iter [{}/{}]\t"
-                    #"Data {data_time.val:.2f} ({data_time.avg:.2f})\t"
-                    "Time {batch_time.val:.2f} ({batch_time.avg:.2f})\t"
-                    "Loss {loss.val:.4f} ({loss.avg:.4f})\t"
-                    "LR {lr:.5f} ({lr:.7f})\t"
-                    "cpu_mem: {cpu_mem:2.1f}%\t"
-                    "gpu_mem: {gpu_mem}% of {total_mem}MiB\t".format(
-                        i_iter,
-                        cfg["trainer"]["epochs"] * len(data_loader),
-                        data_time=data_times,
-                        batch_time=batch_times,
-                        loss=losses,
-                        lr=optimizer.param_groups[0]['lr'],
-                        cpu_mem=cpu_mem_percent_used,
-                        gpu_mem=gpu_mem_percent_used,
-                        total_mem=memory_total_info
-                    )
+            logging.info(
+                "Iter [{}/{}]\t"
+                #"Data {data_time.val:.2f} ({data_time.avg:.2f})\t"
+                "Time {batch_time.val:.2f} ({batch_time.avg:.2f})\t"
+                "Loss {loss.val:.4f} ({loss.avg:.4f})\t"
+                "LR {lr:.5f} ({lr:.7f})\t"
+                "cpu_mem: {cpu_mem:2.1f}%\t"
+                "gpu_mem: {gpu_mem}% of {total_mem}MiB\t".format(
+                    i_iter,
+                    cfg["trainer"]["epochs"] * len(data_loader),
+                    data_time=data_times,
+                    batch_time=batch_times,
+                    loss=losses,
+                    lr=optimizer.param_groups[0]['lr'],
+                    cpu_mem=cpu_mem_percent_used,
+                    gpu_mem=gpu_mem_percent_used,
+                    total_mem=memory_total_info
                 )
-            #
-            #     tb_logger.add_scalar("lr", learning_rates.avg, i_iter)
-            #     tb_logger.add_scalar("Loss", losses.avg, i_iter)
+            )
+        #
+        #     tb_logger.add_scalar("lr", learning_rates.avg, i_iter)
+        #     tb_logger.add_scalar("Loss", losses.avg, i_iter)
 
     # start Mike's code
     per_class_accuracy = np.mean(per_class_accuracy, axis=0)    # calculate per class accuracy for entire epoch
-    num_classes = cfg["net"]["num_classes"]
-    for num in range(num_classes):
-        train_stats.add(epoch, 'per_class_accuracy_class_{}'.format(num), per_class_accuracy[num])
-    #train_stats.close_accumulate(epoch, "ARI", method='avg')
+    train_stats.add(epoch, 'per_class_accuracy', per_class_accuracy)
+    train_stats.close_accumulate(epoch, "ARI", method='avg')
     train_stats.close_accumulate(epoch, 'train_loss', method='avg')  # this adds the avg loss to the train stats
     train_stats.close_accumulate(epoch, 'train_accuracy', method='avg')
     train_stats.close_accumulate(epoch, 'learning_rates', method='avg')
@@ -564,7 +533,7 @@ def validate(
         loss = criterion(output, labels)
         train_stats.append_accumulate('val_loss', loss.item())
         pred = torch.argmax(output, dim=1)
-        accuracy = torch.mean((pred == labels / labels.numel()).type(torch.FloatTensor))
+        accuracy = torch.mean((pred == labels).type(torch.FloatTensor))
         train_stats.append_accumulate('val_accuracy', accuracy.item())
         # end Mike's code
 

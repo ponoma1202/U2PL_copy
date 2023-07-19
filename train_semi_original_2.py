@@ -14,14 +14,14 @@ import torch.backends.cudnn as cudnn
 #import torch.distributed as dist
 import torch.nn.functional as F
 import yaml
-import shutil                                                   # For Mike's code
+from tensorboardX import SummaryWriter
+import shutil                                                   # For Mike's code           #1
 from pytorch_utils import lr_scheduler as lr_scheduler_custom   # For Mike's code
 from pytorch_utils import metadata                              # For Mike's code
 import copy                                                     # For Mike's code
 import psutil                                                     # For Mike's code
 import subprocess                                                     # For Mike's code
 
-from sklearn.metrics.cluster import adjusted_rand_score
 from u2pl.dataset.augmentation import generate_unsup_data
 from u2pl.dataset.builder import get_loader
 from u2pl.models.model_helper import ModelBuilder
@@ -49,7 +49,7 @@ parser.add_argument("--config", type=str, default="experiments/pascal/1464/ours/
 #parser.add_argument("--local_rank", type=int, default=0)
 parser.add_argument("--seed", type=int, default=0)
 #parser.add_argument("--port", default=None, type=int)
-parser.add_argument("--output_dirpath", type=str, default="./stats")
+parser.add_argument("--output_dirpath", type=str, default="./stats")    #1
 
 
 def main():
@@ -58,7 +58,7 @@ def main():
     seed = args.seed
     cfg = yaml.load(open(args.config, "r"), Loader=yaml.Loader)
 
-    #logger = init_log("global", logging.INFO)
+    #logger = init_log("global", logging.INFO)      #1
     #logger.propagate = 0
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",  # Mike's logger
@@ -73,14 +73,17 @@ def main():
     #rank, word_size = setup_distributed(port=args.port)
 
     rank = 0
-    # if rank == 0:
-    #     logging.info("{}".format(pprint.pformat(cfg)))
+    # if rank == 0:                                                                 #1
+    #     logger.info("{}".format(pprint.pformat(cfg)))
     #     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
     #     tb_logger = SummaryWriter(
     #         osp.join(cfg["exp_path"], "log/events_seg/" + current_time)
     #     )
     # else:
     #     tb_logger = None
+
+    current_time = datetime.now().strftime("%Y%m%d_%H%M%S")                                             #2
+    tb_logger = SummaryWriter(osp.join(cfg["exp_path"], "log/events_seg/" + current_time))              #2
 
     if args.seed is not None:
         print("set random seed to", args.seed)
@@ -101,24 +104,6 @@ def main():
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
     model.cuda()
-
-    # start Mike's code
-
-    cpu_mem_percent_used = psutil.virtual_memory().percent
-    gpu_mem_percent_used, memory_total_info = get_gpu_memory()
-    gpu_mem_percent_used = [np.round(100 * x, 1) for x in gpu_mem_percent_used]
-
-    logging.info("Saving stats into: {}".format(args.output_dirpath))
-    logging.info("Batch size: {}".format(cfg["dataset"]["batch_size"]))
-    logging.info("Learning rate: {}".format(cfg["trainer"]["optimizer"]["kwargs"]["lr"]))
-
-    logging.info("GPU memory after student model is loaded.\t"
-                 "cpu_mem: {cpu_mem:2.1f}%\t"
-                 "gpu_mem: {gpu_mem}% of {total_mem}MiB\t".format(
-        cpu_mem=cpu_mem_percent_used,
-        gpu_mem=gpu_mem_percent_used,
-        total_mem=memory_total_info))  # GPU usage before loading student model
-    # end Mike's code
 
     sup_loss_fn = get_criterion(cfg)
 
@@ -152,19 +137,6 @@ def main():
     # Teacher model
     model_teacher = ModelBuilder(cfg["net"])
     model_teacher = model_teacher.cuda()
-
-    # start Mike's code
-    cpu_mem_percent_used = psutil.virtual_memory().percent
-    gpu_mem_percent_used, memory_total_info = get_gpu_memory()
-    gpu_mem_percent_used = [np.round(100 * x, 1) for x in gpu_mem_percent_used]
-
-    logging.info("GPU memory after teacher model is loaded.\t"
-                 "cpu_mem: {cpu_mem:2.1f}%\t"
-                 "gpu_mem: {gpu_mem}% of {total_mem}MiB\t".format(
-        cpu_mem=cpu_mem_percent_used,
-        gpu_mem=gpu_mem_percent_used,
-        total_mem=memory_total_info))  # GPU usage before loading student model
-    # end Mike's code
 
     # model_teacher = torch.nn.parallel.DistributedDataParallel(
     #     model_teacher,
@@ -243,7 +215,7 @@ def main():
     # Start to train model
     #for epoch in range(last_epoch, cfg_trainer["epochs"]):
 
-    # start Mike's code
+    # start Mike's code                 #1
     while not plateau_scheduler.is_done():
         epoch += 1
         logging.info("Epoch: {}".format(epoch))
@@ -252,7 +224,6 @@ def main():
         train_stats.plot_all_metrics(output_dirpath=args.output_dirpath)
 
         train_stats.add_global('batch size', cfg["dataset"]["batch_size"])
-
         # end Mike's code
 
         # Training
@@ -261,28 +232,28 @@ def main():
             model_teacher,
             optimizer,
             plateau_scheduler,
-            #lr_scheduler,
+            #lr_scheduler,              #1
             sup_loss_fn,
             train_loader_sup,
             train_loader_unsup,
             epoch,
-            #tb_logger,
+            tb_logger,          #2
             #logger,
             memobank,
             queue_ptrlis,
             queue_size,
-            train_stats             # for plateau scheduler
+            train_stats
         )
 
         # Validation
         if cfg_trainer["eval_on"]:
             if rank == 0:
-                logging.info("start evaluation")
+                logging.info("start evaluation")                 #1
 
             if epoch < cfg["trainer"].get("sup_only_epoch", 1):
-                prec = validate(model, val_loader, epoch, train_stats, sup_loss_fn)
+                prec = validate(model, val_loader, epoch, train_stats, sup_loss_fn)  #prec = validate(model, val_loader, epoch, logger)               #1
             else:
-                prec = validate(model_teacher, val_loader, epoch, train_stats, sup_loss_fn)
+                prec = validate(model_teacher, val_loader, epoch, train_stats, sup_loss_fn)  #prec = validate(model_teacher, val_loader, epoch, logger)             #1
 
             if rank == 0:
                 state = {
@@ -305,20 +276,20 @@ def main():
                 #         best_prec * 100
                 #     )
                 # )
-                # tb_logger.add_scalar("mIoU val", prec, epoch)
 
-                # start Mike's code
+                tb_logger.add_scalar("mIoU val", prec, epoch)               #2
 
-                # val_loss = train_stats.get_epoch('val_loss', epoch=epoch) - commented out in Mike's code
+
+                # start Mike's code             #1
                 val_accuracy = train_stats.get_epoch('val_accuracy', epoch=epoch)
                 plateau_scheduler.step(val_accuracy)
 
-                # update global metadata stats
+                # update global metadata stats          #2
                 train_stats.add_global('train_wall_time', train_stats.get('train_wall_time', aggregator='sum'))
                 train_stats.add_global('val_wall_time', train_stats.get('val_wall_time', aggregator='sum'))
                 train_stats.add_global('num_epochs_trained', epoch)
 
-                # handle early stopping when loss converges
+                # handle early stopping when loss converges         #1
                 if plateau_scheduler.is_equiv_to_best_epoch:
                     logging.info('Updating best model with epoch: {} accuracy: {}'.format(epoch, val_accuracy))
                     best_model = copy.deepcopy(model)
@@ -330,12 +301,14 @@ def main():
                 # end Mike's code
 
     # start Mike's code
+    #2
     wall_time = time.time() - train_start_time
     train_stats.add_global('wall_time', wall_time)
     logging.info("Total WallTime: {}seconds".format(train_stats.get_global('wall_time')))
 
+    # 1
     train_stats.export(args.output_dirpath)  # update metrics data on disk
-    train_stats.plot_all_metrics(output_dirpath=args.output_dirpath)
+    train_stats.plot_all_metrics(output_dirpath=args.output_dirpath)            #2
     best_model.cpu()  # move to cpu before saving to simplify loading the model
     # save a python class embedded version of the model
     torch.save(best_model, os.path.join(args.output_dirpath, 'model.pt'))
@@ -353,12 +326,12 @@ def train(
     loader_l,
     loader_u,
     epoch,
-    #tb_logger,
+    tb_logger,          #2
     #logger,
     memobank,
     queue_ptrlis,
     queue_size,
-    train_stats                 # for plateau scheduler
+    train_stats
 ):
     global prototype
     ema_decay_origin = cfg["net"]["ema_decay"]
@@ -382,29 +355,29 @@ def train(
     batch_times = AverageMeter(10)
     learning_rates = AverageMeter(10)
 
-    # start Mike's code
+    # start Mike's code     #2
     start_time = time.time()
     student_per_class_accuracy = []
     teacher_per_class_accuracy = []
     # end Mike's code
 
     batch_end = time.time()
-    for step, tensor_l_dict in enumerate(loader_l):
+    for step, tensor_l_dict in enumerate(loader_l): #range(len(loader_l)):
         batch_start = time.time()
         data_times.update(batch_start - batch_end)
 
         i_iter = epoch * len(loader_l) + step
-        #lr = lr_scheduler.get_lr()             # Replaced by plateau scheduler
-        #learning_rates.update(lr[0])           # Replaced by plateau scheduler
-        #lr_scheduler.step()                    # Replaced by plateau scheduler
+        #lr = lr_scheduler.get_lr()                 #1
+        #learning_rates.update(lr[0])
+        #lr_scheduler.step()
 
-        image_l, label_l = tensor_l_dict
+        image_l, label_l = tensor_l_dict #loader_l_iter.next()
         batch_size, h, w = label_l.size()
         image_l, label_l = image_l.cuda(), label_l.cuda()
 
-        image_u, label_u = next(loader_u_iter)            # Get label for "unlabeled" image for accuracy calculation - VP
-        image_u, label_u = image_u.cuda(), label_u.cuda().detach()
-        # For Mike's code
+        image_u, label_u = next(loader_u_iter) #loader_u_iter.next()          #2
+        image_u = image_u.cuda()
+        label_u = label_u.cuda().detach()       #2
 
         if epoch < cfg["trainer"].get("sup_only_epoch", 1):
             contra_flag = "none"
@@ -422,8 +395,7 @@ def train(
                 sup_loss = sup_loss_fn(pred, label_l)
 
             model_teacher.train()
-            teacher_out = model_teacher(image_l)
-            del teacher_out
+            _ = model_teacher(image_l)
 
             unsup_loss = 0 * rep.sum()
             contra_loss = 0 * rep.sum()
@@ -440,32 +412,28 @@ def train(
             model_teacher.eval()
             pred_u_teacher = model_teacher(image_u)["pred"]
             pred_u_teacher = F.interpolate(
-                pred_u_teacher, (h, w), mode="bilinear", align_corners=True)
+                pred_u_teacher, (h, w), mode="bilinear", align_corners=True
+            )
             pred_u_teacher = F.softmax(pred_u_teacher, dim=1)
-            logits_u_aug, label_u_aug = torch.max(pred_u_teacher, dim=1)            # second argument of torch.max is argmax
+            logits_u_aug, label_u_aug = torch.max(pred_u_teacher, dim=1)
 
-            # start Mike's code
-            # TODO: Teacher's pseudo-labels vs ground truth
-            accuracy = torch.mean((label_u_aug == label_u / label_u.numel()).type(torch.FloatTensor))     # changed to label_u.numel() division
+            # start Mike's code             #2
+            accuracy = torch.mean((label_u_aug == label_u / label_u.numel()).type(
+                torch.FloatTensor))  # changed to label_u.numel() division
             train_stats.append_accumulate('teacher_pseudo_labeling_accuracy', accuracy.item())
             # end Mike's code
 
-            # start my teacher per class accuracy code
-            teacher_batch_class_accuracy, teacher_ARI = ARI_and_class_accuracy(label_u_aug.cpu().detach().numpy(), label_u.cpu().detach().numpy(), batch_size)
-            teacher_per_class_accuracy.append(teacher_batch_class_accuracy)
-            train_stats.append_accumulate("teacher_ARI", teacher_ARI)
-            # end my teacher per class accuracy code
+            #TODO: add teacher per class accuracy
 
             # apply strong data augmentation: cutout, cutmix, or classmix
             if np.random.uniform(0, 1) < 0.5 and cfg["trainer"]["unsupervised"].get(
                 "apply_aug", False
             ):
-                image_u_aug, label_u_aug, logits_u_aug, label_u = generate_unsup_data(           # changed to label_u_all for accuracy calculation
+                image_u_aug, label_u_aug, logits_u_aug = generate_unsup_data(
                     image_u,
                     label_u_aug.clone(),
                     logits_u_aug.clone(),
-                    label_u.clone(),
-                    mode=cfg["trainer"]["unsupervised"]["apply_aug"]
+                    mode=cfg["trainer"]["unsupervised"]["apply_aug"],
                 )
             else:
                 image_u_aug = image_u
@@ -483,18 +451,14 @@ def train(
                 pred_u, size=(h, w), mode="bilinear", align_corners=True
             )
 
-
-            # TODO: Student vs ground truth accuracy
+            # start Mike's code                         #2
             pred_student = torch.argmax(pred_u_large, dim=1)
-            accuracy = torch.mean((pred_student == label_u / label_u.numel()).type(torch.FloatTensor))      # changed to label_u.numel() division
+            accuracy = torch.mean((pred_student == label_u / label_u.numel()).type(
+                torch.FloatTensor))  # changed to label_u.numel() division
             train_stats.append_accumulate('student_pseudo_labeling_accuracy', accuracy.item())
             # end Mike's code
 
-            # start my student per class accuracy code
-            student_batch_class_accuracy, student_ARI = ARI_and_class_accuracy(pred_student.cpu().detach().numpy(), label_u.cpu().detach().numpy(), batch_size)
-            student_per_class_accuracy.append(student_batch_class_accuracy)
-            train_stats.append_accumulate("student_ARI", student_ARI)
-            # end my student per class accuracy code
+            #TODO: add student per class accuracy
 
             # supervised loss
             if "aux_loss" in cfg["net"].keys():
@@ -522,9 +486,8 @@ def train(
 
             # unsupervised loss
             drop_percent = cfg["trainer"]["unsupervised"].get("drop_percent", 100)
-            #percent_unreliable = (100 - drop_percent) * (1 - epoch / cfg["trainer"]["epochs"])
-            percent_unreliable = (100 - drop_percent) * ((0.5)**(epoch/50))         # changed this to fit with Mike's plateu scheduler
-            train_stats.append_accumulate('percent_unreliable', percent_unreliable)     # for debugging
+            percent_unreliable = (100 - drop_percent) * (1 - epoch / cfg["trainer"]["epochs"])
+            # TODO: add Mike's percent_unreliable variable
             drop_percent = 100 - percent_unreliable
             unsup_loss = (
                     compute_unsupervised_loss(
@@ -543,20 +506,16 @@ def train(
                 contra_flag = "{}:{}".format(
                     cfg_contra["low_rank"], cfg_contra["high_rank"]
                 )
-                # alpha_t = cfg_contra["low_entropy_threshold"] * (
-                #     1 - epoch / cfg["trainer"]["epochs"]
-                # )
+                alpha_t = cfg_contra["low_entropy_threshold"] * (
+                    1 - epoch / cfg["trainer"]["epochs"]
+                )
 
-                # start my code
-                alpha_t = cfg_contra["low_entropy_threshold"] * ((0.5)**(epoch/50))     # changed this to fit with Mike's plateu scheduler
-                # end my code
+                #TODO: add Mike's alpha
 
                 with torch.no_grad():
                     prob = torch.softmax(pred_u_large_teacher, dim=1)
                     entropy = -torch.sum(prob * torch.log(prob + 1e-10), dim=1)
 
-                    # For RELIABLE pixels - VP
-                    # Create mask that captures the percentile less than alpha_t (starts at 20% and goes down) - VP
                     low_thresh = np.percentile(
                         entropy[label_u_aug != 255].cpu().numpy().flatten(), alpha_t
                     )
@@ -564,7 +523,6 @@ def train(
                         entropy.le(low_thresh).float() * (label_u_aug != 255).bool()
                     )
 
-                    # Create mask that captures the percentile greater than (100 - alpha_t) (starts at 80% and goes up) - VP
                     high_thresh = np.percentile(
                         entropy[label_u_aug != 255].cpu().numpy().flatten(),
                         100 - alpha_t,
@@ -667,7 +625,7 @@ def train(
                             prototype,
                         )
 
-           #     dist.all_reduce(contra_loss)
+               # dist.all_reduce(contra_loss)
                 world_size = 1
                 contra_loss = (
                     contra_loss
@@ -687,7 +645,7 @@ def train(
         # update teacher model with EMA
         if epoch >= cfg["trainer"].get("sup_only_epoch", 1):
             with torch.no_grad():
-                ema_decay = min(1 - 1 / (i_iter - len(loader_l) * cfg["trainer"].get("sup_only_epoch", 1) + 1), ema_decay_origin, )
+                ema_decay = min(1 - 1 / (i_iter - len(loader_l) * cfg["trainer"].get("sup_only_epoch", 1) + 1), ema_decay_origin,)
                 for t_params, s_params in zip(model_teacher.parameters(), model.parameters()):
                     t_params.data = (ema_decay * t_params.data + (1 - ema_decay) * s_params.data)
 
@@ -707,7 +665,7 @@ def train(
         batch_end = time.time()
         batch_times.update(batch_end - batch_start)
 
-        # start Mike's code
+        # start Mike's code             #2
         train_stats.append_accumulate('train_loss', loss.item())
         train_stats.append_accumulate('supervised_loss', reduced_sup_loss.item())
         train_stats.append_accumulate('unsupervised_loss', reduced_uns_loss.item())
@@ -716,22 +674,22 @@ def train(
         # end Mike's code
 
         rank = 0
-        if i_iter % 100 == 0 and rank == 0:
-            # start Mike's code
+        if i_iter % 100 == 0 and rank == 0:         #1
+            # start Mike's code         #2
             cpu_mem_percent_used = psutil.virtual_memory().percent
             gpu_mem_percent_used, memory_total_info = get_gpu_memory()
             gpu_mem_percent_used = [np.round(100 * x, 1) for x in gpu_mem_percent_used]
             # end Mike's code
 
-            logging.info(
+            logging.info(  # 1
                 "[{}][{}] "
                 "Iter [{}/{}]\t"
-                #"Data {data_time.val:.2f} ({data_time.avg:.2f})\t"
+                #"Data {data_time.val:.2f} ({data_time.avg:.2f})\t"     #1
                 "Time {batch_time.val:.2f} ({batch_time.avg:.2f})\t"
                 "Sup {sup_loss.val:.3f} ({sup_loss.avg:.3f})\t"
                 "Uns {uns_loss.val:.3f} ({uns_loss.avg:.3f})\t"
                 "Con {con_loss.val:.3f} ({con_loss.avg:.3f})\t"
-                "LR {lr:.5f}\t"
+                "LR {lr:.5f}"
                 "cpu_mem: {cpu_mem:2.1f}%\t"
                 "gpu_mem: {gpu_mem}% of {total_mem}MiB\t".format(
                     cfg["dataset"]["n_sup"],
@@ -743,76 +701,35 @@ def train(
                     sup_loss=sup_losses,
                     uns_loss=uns_losses,
                     con_loss=con_losses,
-                    lr=optimizer.param_groups[0]['lr'],
-                    cpu_mem=cpu_mem_percent_used,
+                    lr=optimizer.param_groups[0]['lr'],  # 1
+                    cpu_mem=cpu_mem_percent_used,           #2
                     gpu_mem=gpu_mem_percent_used,
                     total_mem=memory_total_info
                 )
             )
 
-            # tb_logger.add_scalar("lr", learning_rates.val, i_iter)
-            # tb_logger.add_scalar("Sup Loss", sup_losses.val, i_iter)
-            # tb_logger.add_scalar("Uns Loss", uns_losses.val, i_iter)
-            # tb_logger.add_scalar("Con Loss", con_losses.val, i_iter)
+            #tb_logger.add_scalar("lr", learning_rates.val, i_iter)              #2
+            #tb_logger.add_scalar("Sup_Loss", sup_losses.val, i_iter)
+            #tb_logger.add_scalar("Uns_Loss", uns_losses.val, i_iter)
+            #tb_logger.add_scalar("Con_Loss", con_losses.val, i_iter)
 
-    # start Mike's code
+    # start Mike's code         #2
     train_stats.close_accumulate(epoch, 'train_loss', method='avg')  # this adds the avg loss to the train stats
     train_stats.close_accumulate(epoch, "supervised_loss", method='avg')
     train_stats.close_accumulate(epoch, "unsupervised_loss", method='avg')
     train_stats.close_accumulate(epoch, "contrastive_loss", method='avg')
     train_stats.close_accumulate(epoch, 'learning_rates', method='avg')
 
-    train_stats.close_accumulate(epoch, "student_ARI", method='avg')
-    train_stats.close_accumulate(epoch, "teacher_ARI", method='avg')
-
-    num_classes = cfg["net"]["num_classes"]
-    student_per_class_accuracy = np.mean(student_per_class_accuracy, axis=0)
-    teacher_per_class_accuracy = np.mean(teacher_per_class_accuracy, axis=0)
-
-    logging.info("student_per_class_accuracy_list: {}".format(student_per_class_accuracy))
-    if not (np.isnan(student_per_class_accuracy) or np.isnan(teacher_per_class_accuracy)):
-        for num in range(num_classes):
-            train_stats.add(epoch, 'student_per_class_accuracy_class_{}'.format(num), student_per_class_accuracy[num])
-            train_stats.add(epoch, 'teacher_per_class_accuracy_class_{}'.format(num), teacher_per_class_accuracy[num])
+    #TODO: add ARI and per class accuracy
 
     train_stats.close_accumulate(epoch, 'teacher_pseudo_labeling_accuracy', method='avg')
-    train_stats.close_accumulate(epoch,'student_pseudo_labeling_accuracy', method='avg')
-    train_stats.close_accumulate(epoch, 'percent_unreliable', method='avg')
+    train_stats.close_accumulate(epoch, 'student_pseudo_labeling_accuracy', method='avg')
+    #train_stats.close_accumulate(epoch, 'percent_unreliable', method='avg')
     train_stats.add(epoch, 'train_wall_time', time.time() - start_time)
     # end Mike's code
 
 
-# start my per class accuracy code
-def ARI_and_class_accuracy(pred, label, batch_size):
-    batch_class_accuracy = []
-    ari_accuracy = []
-    num_classes = cfg["net"]["num_classes"]
-
-    for img in range(batch_size):
-        pred_cpy = pred[img]
-        label_cpy = label[img]
-        img_accuracy = []
-
-        # make pixel mask for all classes in ground truth and compare with the prediction
-        for id in range(0, num_classes):
-            pred_mask = pred_cpy == id
-            label_mask = label_cpy == id
-            per_pixel_accuracy = np.logical_and(pred_mask, label_mask)
-
-            # Divide total number of correctly identified non background pixels, divide by total number of actual non background pixels there should be
-            try:
-                total_accuracy = np.count_nonzero(per_pixel_accuracy) / np.count_nonzero(label_mask)  # maybe edit denominator to just count_nonzero of label
-            except:
-                total_accuracy = 0
-            img_accuracy.append(total_accuracy)
-        batch_class_accuracy.append(img_accuracy)
-        ari_accuracy.append(adjusted_rand_score(label_cpy.flatten(), pred_cpy.flatten()))
-
-    return np.mean(batch_class_accuracy, axis=0), np.mean(ari_accuracy)
-# end my per class accuracy code
-
-
-# start Mike's code
+# start Mike's code         #2
 def get_gpu_memory():
     command = "nvidia-smi --query-gpu=memory.used --format=csv"
     memory_used_info = subprocess.check_output(command.split()).decode('ascii').split('\n')[:-1][1:]
@@ -829,10 +746,10 @@ def validate(
     data_loader,
     epoch,
     #logger,
-    train_stats,         # for Mike's code
+    train_stats,         # for Mike's code          #1
     criterion            # for Mike's code
 ):
-    # start Mike's code
+    # start Mike's code         #2
     logging.info('Evaluating model against validation data')
     start_time = time.time()
     # end Mike's code
@@ -863,11 +780,12 @@ def validate(
             output, labels.shape[1:], mode="bilinear", align_corners=True
         )
 
-        # start Mike's code
+        # start Mike's code         #1
         loss = criterion(output, labels)
         train_stats.append_accumulate('val_loss', loss.item())
         pred = torch.argmax(output, dim=1)
-        accuracy = torch.mean((pred == labels / labels.numel()).type(torch.FloatTensor))         # changed to labels.numel() division
+        accuracy = torch.mean(
+            (pred == labels / labels.numel()).type(torch.FloatTensor))  # changed to labels.numel() division
         train_stats.append_accumulate('val_accuracy', accuracy.item())
         # end Mike's code
 
@@ -893,24 +811,20 @@ def validate(
 
     iou_class = intersection_meter.sum / (union_meter.sum + 1e-10)
 
-    # start Mike's code
-
     # close out the accumulating stats with the specified method
+    #TODO: add more stats
     train_stats.append_accumulate('iou', [metric for metric in iou_class])
     train_stats.close_accumulate(epoch, 'iou', method='avg')
-    train_stats.close_accumulate(epoch, 'val_loss', method='avg')
+    train_stats.close_accumulate(epoch, 'val_loss', method='avg')           #2
     # this adds the avg loss to the train stats
     train_stats.close_accumulate(epoch, 'val_accuracy', method='avg')
-    train_stats.add(epoch, 'val_wall_time', time.time() - start_time)
-
-    # end Mike's code
+    train_stats.add(epoch, 'val_wall_time', time.time() - start_time)       #2
 
     mIoU = np.mean(iou_class)
 
-    # if rank == 0:
-    #     for i, iou in enumerate(iou_class):
-    #         logger.info(" * class [{}] IoU {:.2f}".format(i, iou * 100))
-    #     logger.info(" * epoch {} mIoU {:.2f}".format(epoch, mIoU * 100))
+    for i, iou in enumerate(iou_class):                         #2
+        logging.info(" * class [{}] IoU {:.2f}".format(i, iou * 100))
+    logging.info(" * epoch {} mIoU {:.2f}".format(epoch, mIoU * 100))
 
     return mIoU
 

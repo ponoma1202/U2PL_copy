@@ -1,8 +1,8 @@
 dataset: # Required.
-  type: pascal
+  type: cryo #pascal
   train:
-    data_root: data/VOC2012
-    data_list: data/splits/pascal/1464/labeled.txt
+    data_root: /home/vsp1/v4 #data/VOC2012
+    data_list: /home/vsp1/v4/my_test_high_contrast.txt  #data/splits/pascal/1464/labeled.txt
     flip: True
     GaussianBlur: False
     rand_resize: [0.5, 2.0]
@@ -11,15 +11,15 @@ dataset: # Required.
       type: rand
       size: [513, 513] # crop image with HxW size
   val:
-    data_root: data/VOC2012
-    data_list: data/splits/pascal/val.txt
+    data_root: home/vsp1/v4 #data/VOC2012
+    data_list: /home/vsp1/v4/my_test_low_contrast.txt  #data/splits/pascal/val.txt
     crop:
       type: center
       size: [513, 513] # crop image with HxW size
   batch_size: 2
   n_sup: 1464
   noise_std: 0.1
-  workers: 2
+  workers: 0 #2
   mean: [123.675, 116.28, 103.53]
   std: [58.395, 57.12, 57.375]
   ignore_label: 255
@@ -31,7 +31,7 @@ trainer: # Required.
   optimizer:
     type: SGD
     kwargs:
-      lr: 0.0003   #0.001  # 2GPUs
+      lr: 0.001 # 2GPUs
       momentum: 0.9
       weight_decay: 0.0001
   lr_scheduler:

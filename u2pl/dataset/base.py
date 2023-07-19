@@ -1,8 +1,11 @@
 import logging
+import os.path
 
+import skimage
 from PIL import Image
 from torch.utils.data import Dataset
 import mrcfile
+import tifffile as tiff
 
 
 class BaseDataset(Dataset):
@@ -29,7 +32,15 @@ class BaseDataset(Dataset):
                 ]
                 for line in open(d_list, "r")
             ]
-        else:           # TODO: add cryoem to this dataset
+        elif "v4" in d_list:            # added cryoem to dataset
+            self.list_sample = [
+                [
+                    "images/{}.mrc".format(line.strip()),
+                    "gold_truth/{}.tif".format(line.strip())
+                ]
+                for line in open(d_list, "r")
+            ]
+        else:
             raise "unknown dataset!"
 
         if max_sample > 0:
@@ -46,11 +57,15 @@ class BaseDataset(Dataset):
             img = Image.open(f)
             return img.convert(mode)
 
-    def cryoem_loader(self, path):
+    def cryoem_img_loader(self, path):
         with mrcfile.open(path) as mrc:
             data = mrc.data.astype(float)
             return data
         # TODO: base it off of Ashira's code. See if keeping the image as a tensor works
+
+    def cryoem_label_loader(self, path):
+        img = skimage.io.imread(path, as_gray=True)
+        return img
 
     def __len__(self):
         return self.num_sample

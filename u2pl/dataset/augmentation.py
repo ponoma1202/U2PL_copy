@@ -579,7 +579,7 @@ def generate_unsup_data(data, target, logits, label_u, mode="cutout"):      # ad
     return new_data, new_target.long(), new_logits, new_label_u
 
 # original generate_unsup_data method - VP
-def generate_unsup_data(data, target, logits, mode="cutout"):      # added label_u argument to debug -VP
+def generate_unsup_data_original(data, target, logits, mode="cutout"):      # added label_u argument to debug -VP
     batch_size, _, im_h, im_w = data.shape
     device = data.device
 
