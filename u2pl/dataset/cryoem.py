@@ -192,12 +192,12 @@ def build_transform_before(cfg):        # what will transform the image before i
 def build_preprocessing(cfg):
     chain = []
     cfg_pre = cfg["preprocess"]
-    if cfg.get(cfg_pre["z_score"]):
-        chain.append(augment.ZScoreNorm())
+    if cfg.get(cfg_pre["gaussian_blur"]):               # TODO: Make custom DC augmentation
+        chain.append(albumentations.GaussianBlur(sigma_limit=150))
     if cfg.get(cfg_pre["median_filter"]):
         chain.append(albumentations.MedianBlur())
-    if cfg.get(cfg_pre["gaussian_blur"]):
-        chain.append(albumentations.GaussianBlur(sigma_limit=150))
+    if cfg.get(cfg_pre["z_score"]):             # TODO: Replace with Ashira's normalization method maybe?
+        chain.append(augment.ZScoreNorm())
     chain.append(albumentations.pytorch.ToTensorV2())
     return albumentations.Compose(chain)
 

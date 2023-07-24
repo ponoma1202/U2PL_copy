@@ -5,6 +5,7 @@ import random
 
 import cv2
 import numpy as np
+import scipy.ndimage
 import torch
 from PIL import Image
 from scipy.ndimage import gaussian_filter
@@ -156,8 +157,44 @@ class ZScoreNorm(albumentations.core.transforms_interface.ImageOnlyTransform):
         img = (img - mv) / std
 
         return img
-
 # end Mike's z-score norm
+
+
+# start Ashira's DC filtering method
+class DC_filter(albumentations.core.transforms_interface.ImageOnlyTransform):
+    def __init__(self, always_apply: bool = False, p: float = 1.0):
+        super().__init__(always_apply=always_apply, p=p)
+
+    def apply(self, image, sigma:150, **params):
+        filtered = gaussian_filter(image, sigma, mode='reflect')
+        zero_noise = normalize(image - filtered)
+        return zero_noise
+
+# end Ashira's implementation
+
+# TODO: Change this into a class that inherits from albumentations
+# start Ashira's normalize implementation
+def normalize(image_data, resolution=65535.0):
+    image_data = image_data.astype(float)  # if data coming in is int16
+
+    std = np.std(image_data)
+    mv = np.mean(image_data)
+    image_data = (image_data - mv) / std
+
+    # limit range to +-5
+    rangeMin = max(np.min(image_data), -5)
+    rangeMax = min(np.max(image_data), 5)
+    image_data[image_data > rangeMax] = rangeMax
+    image_data[image_data < rangeMin] = rangeMin
+
+    # make data 0-1
+    pmin = np.min(image_data)
+    pmax = np.max(image_data)
+    image_data = (image_data - pmin) / (pmax - pmin)
+
+    image_data = image_data * (resolution)
+    return image_data  # .astype(np.float32)
+#end Ashira's normalize implementation
 
 
 class Resize(object):
