@@ -13,3 +13,4 @@ psutil
 sklearn
 mrcfile
 imagecodecs
+albumentations

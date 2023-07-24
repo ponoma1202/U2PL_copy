@@ -61,7 +61,6 @@ class BaseDataset(Dataset):
         with mrcfile.open(path) as mrc:
             data = mrc.data.astype(float)
             return data
-        # TODO: base it off of Ashira's code. See if keeping the image as a tensor works
 
     def cryoem_label_loader(self, path):
         img = skimage.io.imread(path, as_gray=True)

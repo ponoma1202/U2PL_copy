@@ -10,6 +10,7 @@ from PIL import Image
 from scipy.ndimage import gaussian_filter
 from torch import nn
 from torch.nn import functional as F
+import albumentations.core.transforms_interface
 
 
 class Compose(object):
@@ -139,6 +140,25 @@ class Z_score (object):
             image = image - mean
             image = image / std
             return image.unsqueeze(0), label
+
+# start Mike's Z-score norm
+class ZScoreNorm(albumentations.core.transforms_interface.ImageOnlyTransform):
+    def __init__(self, always_apply: bool = False, p: float = 1.0):
+        # default p of 1.0 ensures it always called, unless the user overrides
+        super().__init__(always_apply=always_apply, p=p)
+
+    def apply(self, img, **params):
+        img = img.astype(np.float32)
+
+        std = np.std(img)
+        mv = np.mean(img)
+        # z-score normalize
+        img = (img - mv) / std
+
+        return img
+
+# end Mike's z-score norm
+
 
 class Resize(object):
     """

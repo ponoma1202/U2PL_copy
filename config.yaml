@@ -7,6 +7,11 @@ dataset: # Required.
     GaussianBlur: False
     rand_resize: [0.5, 2.0]
     #rand_rotation: [-10.0, 10.0]
+    preprocess:         # added this for normalization for cryoEM - VP
+      z_score: True
+      median_filter: True
+      gaussian_blur: True
+    n_steps: 10
     crop:
       type: rand
       size: [513, 513] # crop image with HxW size
@@ -17,9 +22,10 @@ dataset: # Required.
       type: center
       size: [513, 513] # crop image with HxW size
   batch_size: 2
-  n_sup: 1464
+  n_sup: 9   # changed for cryoem
+  tile_size: 512
   noise_std: 0.1
-  workers: 0 #2
+  workers: 2 #changed for cryoem from 2 ==> 0
   mean: [123.675, 116.28, 103.53]
   std: [58.395, 57.12, 57.375]
   ignore_label: 255
