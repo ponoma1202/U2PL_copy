@@ -1,8 +1,8 @@
 dataset: # Required.
   type: cryo #pascal
   train:
-    data_root: /home/vsp1/v4 #data/VOC2012
-    data_list: /home/vsp1/v4/v3_noRNA.txt #data/splits/pascal/1464/labeled.txt
+    data_root: /mnt/isgnas/project/ai/2023-cryoem-segmentation/data/v4 #data/VOC2012
+    data_list: /mnt/isgnas/home/vsp1/U2PL_copy/v4/v3_noRNA_test_copy.txt #/mnt/isgnas/project/ai/2023-cryoem-segmentation/data/v4/v3_noRNA.txt  #labeled.txt
     flip: True
     GaussianBlur: False
     rand_resize: [0.5, 2.0]
@@ -12,21 +12,21 @@ dataset: # Required.
       median_filter: True
       normalize: True
     tile_size: 512
-    percent_scale: [ -10, 10 ]    # +- range of how much will we "zoom" in/out of each tile to help with flexibility in size of cells
+    percent_scale: [-10, 10]    # +- range of how much will we "zoom" in/out of each tile to help with flexibility in size of cells
     n_steps: 10
     crop:
       type: rand
       size: [513, 513] # crop image with HxW size
   val:
-    data_root: home/vsp1/v4 #data/VOC2012
-    data_list: /home/vsp1/v4/test_high_contrast.txt  #data/splits/pascal/val.txt
+    data_root: /mnt/isgnas/project/ai/2023-cryoem-segmentation/data/v4 
+    data_list: /mnt/isgnas/project/ai/2023-cryoem-segmentation/data/v4/test_high_contrast.txt  
     crop:
       type: center
       size: [513, 513] # crop image with HxW size
   batch_size: 2
   n_sup: 9   # changed for cryoem
   noise_std: 0.1
-  workers: 0 #TODO: changed for debugging
+  workers: 0      # TODO: Change after debugging
   mean: [123.675, 116.28, 103.53]
   std: [58.395, 57.12, 57.375]
   ignore_label: 255

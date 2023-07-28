@@ -9,6 +9,7 @@ import skimage
 import torch
 import scipy
 import matplotlib.pyplot as plt
+import torch.nn.functional
 from torch.utils.data import DataLoader, Dataset
 import logging
 
@@ -22,12 +23,12 @@ from .base import BaseDataset
 
 
 class cryoem(BaseDataset):
-    def __init__(
-        self, data_root, data_list, trs_form, seed=0, n_sup=24, split="val", cfg=None):      #TODO: edit n_sup with total number of images
+    def __init__(self, data_root, data_list, trs_form, seed=0, n_sup=24, split="val", cfg=None):      #TODO: edit n_sup with total number of images
         super(cryoem, self).__init__(data_list)
         self.data_root = data_root
         self.transform = trs_form
         self.cfg = cfg          # added for tiling
+        self.tile_size = self.cfg["train"]["tile_size"]
 
         step = self.cfg.get("n_steps", 1)
         batch_size = self.cfg.get("batch_size")
@@ -53,17 +54,24 @@ class cryoem(BaseDataset):
         image = self.cryoem_img_loader(image_path)
         label = self.cryoem_label_loader(label_path)        # dimensions are 4096 x 4096
 
-        # getting random tile and preprocessing
+        # Rotate full image
+        _rotate = albumentations.Rotate(limit=(0, 360))
+        rotate_dict = _rotate(image=image, mask=label)
+        image, label = rotate_dict["image"], rotate_dict["mask"]
+
+        # Get random tile and do preprocessing/normalization + transforms
         distribution = generate_dist(label)
-        preprocess = build_preprocessing(self.cfg)
-        result_dict = preprocess(image=image, mask=label)
-        image, label = result_dict["image"].squeeze(), result_dict["mask"]              # TODO: More self.transform(image, label) after preprocessing
+        result_dict = self.transform(image=image, mask=label)
+        image, label = result_dict["image"].squeeze(), result_dict["mask"]
 
         image, label = tile(image, label, distribution, self.cfg)     # pass in transformed image, label pair
 
         # reshaping
-        image = image.repeat(1, 3, 1, 1)            # duplicate the image 3 times to have 3 channels
-        label = label.repeat(1, 1, 1, 1)                   # TODO: edited from (1, 3, 1, 1)
+        image = image.repeat(1, 3, 1, 1)  # duplicate the image 3 times to have 3 channels
+        label = label.repeat(1, 1, 1, 1)
+
+        image = torch.nn.functional.interpolate(image, (self.tile_size, self.tile_size), mode="bilinear", align_corners=True)
+        label = torch.nn.functional.interpolate(label, (self.tile_size, self.tile_size), mode="bilinear", align_corners=True)
 
         return image[0], label[0, 0].long()
 
@@ -84,9 +92,11 @@ def set_longer_epoch(step, batch_size, length):
 def tile(image, label, distribution, cfg):
     # TODO: possibly copy Ashira's Tile class to keep track of tile stats
     # 1. sample random "center" (future center for tile) within the densest region of image according to PDF
-    # 2. using the center, cut the tile => apply augmentation such as rotation, flipping, etc (use U2PL's RandRotate, etc in augmentation.py)
+    # 2. using the center, cut the tile
 
-    tile_size = cfg["tile_size"]        # TODO: Edit tile_size
+    tile_size = cfg["train"]["tile_size"]
+    scale_range = cfg["train"]["percent_scale"]
+    tile_size = tile_size * (1.0 + (random.randrange(scale_range[0], scale_range[1]) / 100))
 
     x,y = get_centers(label.squeeze(), 1, tile_size=tile_size, distribution=distribution)      # get center of one future tile
     x, y = x[0], y[0]
@@ -94,37 +104,22 @@ def tile(image, label, distribution, cfg):
     image_tile = image[(x - half):(x + half), (y - half):(y + half)]
     label_tile = label[(x - half):(x + half), (y - half):(y + half)]
 
-    # TODO: do horizontal/vertical flips here
-
     return image_tile, label_tile
 
 
 # generates gaussian filter. Run filter through image 10 times to get the probability density function
 # From Ashira's code
-def generate_dist(mask, count=10, sigma=40, plotting=False):            # is giving negative values for centers
+def generate_dist(mask, count=10, sigma=40):            # is giving negative values for centers
     dist = mask #.astype(float)
     count = 10
     for i in range(count):
         dist = scipy.ndimage.gaussian_filter(dist, sigma, mode='reflect')
     dist = dist/np.sum(dist)
 
-    if plotting:
-        fig = plt.figure()
-        # ax = fig.add_subplot(111, projection='3d')
-        x = y = np.arange(0, 4096)
-        X, Y = np.meshgrid(x, y)
-        Z = dist
-        # ax.plot_surface(X, Y, Z)
-        plt.imshow(Z,cmap='hot')
-        # ax.set_xlabel('X Label')
-        # ax.set_ylabel('Y Label')
-        # ax.set_zlabel('Z Label')
-        plt.show()
-
     return dist
 
 
-def get_centers(mask, n_tiles=1, tile_size=1024, distribution=None, plotting=False):
+def get_centers(mask, n_tiles=1, tile_size=1024, distribution=None):
     if distribution is None:
         distribution = generate_dist(mask)
 
@@ -138,35 +133,11 @@ def get_centers(mask, n_tiles=1, tile_size=1024, distribution=None, plotting=Fal
     Fy = np.cumsum(fy, axis=1)
     Fy = np.divide(Fy, Fy[:, -1])
 
-    if plotting:
-        fig, ax = plt.subplots(2, 2, sharex=True)
-        ax[0][0].plot(fx)
-        ax[0][1].plot(Fx)
-        ax[0][0].set_title("pdf X")
-        ax[0][1].set_title("cdf X")
-        ax[1][0].plot(fy)
-        ax[1][1].plot(Fy)
-        ax[1][0].set_title("pdf Y")
-        ax[1][1].set_title("cdf Y")
-        plt.show()
-
     ids = np.random.uniform(size=(n_tiles, 2))
     idx = np.searchsorted(Fx, ids[:, 0])
     idy = np.zeros_like(idx)
     for i in range(n_tiles):
         idy[i] = np.searchsorted(Fy[idx[i], :], ids[i, 1])
-
-    if plotting:
-        fig, axs = plt.subplots(1, 2, sharey=True, tight_layout=True)
-        # We can set the number of bins with the *bins* keyword argument.
-        n_bins = 50
-        axs[0].hist(idx, bins=n_bins, density=True)
-        axs[1].hist(idy, bins=n_bins, density=True)
-        plt.show()
-
-        fig = plt.figure()
-        plt.scatter(idx, idy)
-        plt.show()
 
     idx = np.minimum(np.maximum(idx, tile_size / 2), mask.shape[0] - tile_size / 2).astype(int)
     idy = np.minimum(np.maximum(idy, tile_size / 2), mask.shape[1] - tile_size / 2).astype(int)
@@ -175,29 +146,18 @@ def get_centers(mask, n_tiles=1, tile_size=1024, distribution=None, plotting=Fal
     return (idx, idy)
 
 
-# TODO: edit config file to input the right transforms
-def build_transform_before(cfg):        # what will transform the image before it goes into the dataloader
-    trs_form = []
-    trs_form.append(augment.Z_score())
-    # trs_form = transforms.Compose([
-    #     transforms.RandomHorizontalFlip(),
-    #     transforms.RandomVerticalFlip(),
-    #     #transforms.Normalize()                # how to add custom normalization method?
-    #     #transforms.GaussianBlur()
-    # ])
-    return augment.Compose(trs_form) #trs_form
-
 # start my preprocessing code
-# Preprocessing normalization transforms: z-score norm, median filter, and gaussian filter
-def build_preprocessing(cfg):
+def build_transform(cfg):
     chain = []
-    cfg_pre = cfg["preprocess"]
-    if cfg.get(cfg_pre["gaussian_blur"]):               # TODO: Make custom DC augmentation
-        chain.append(albumentations.GaussianBlur(sigma_limit=150))
+    cfg_pre = cfg["train"]["preprocess"]
+    if cfg.get(cfg_pre["dc_filter"]):           
+        chain.append(augment.DC_filter())
     if cfg.get(cfg_pre["median_filter"]):
         chain.append(albumentations.MedianBlur())
-    if cfg.get(cfg_pre["z_score"]):             # TODO: Replace with Ashira's normalization method maybe?
+    if cfg.get(cfg_pre["normalize"]):           
         chain.append(augment.ZScoreNorm())
+    chain.append(albumentations.Rotate(limit=(0, 360)))
+    chain.append(albumentations.Flip())
     chain.append(albumentations.pytorch.ToTensorV2())
     return albumentations.Compose(chain)
 
@@ -210,9 +170,9 @@ def build_cryoloader(split, all_cfg, seed=0):
 
     workers = cfg.get("workers", 2)
     batch_size = cfg.get("batch_size", 1)
-    n_sup = cfg.get("n_sup", 1024)         # TODO: Change n_sup
+    n_sup = cfg.get("n_sup", 1024)
     # build transform
-    trs_form = build_transform_before(cfg)          # TODO: Add transform initializations
+    trs_form = build_transform(cfg)
     dset = cryoem(cfg["data_root"], cfg["data_list"], trs_form, seed, n_sup, cfg=cfg)
 
     # build sampler
@@ -239,8 +199,8 @@ def build_cryo_semi_loader(split, all_cfg, seed=0):
     n_sup = 10582 - cfg.get("n_sup", 10582)         # TODO change n_sup
 
     # build transform
-    trs_form = build_transform_before(cfg)                    # TODO: add more transform initializtions
-    trs_form_unsup = build_transform_before(cfg)
+    trs_form = build_transform(cfg)                 
+    trs_form_unsup = build_transform(cfg)
     dset = cryoem(cfg["data_root"], cfg["data_list"], trs_form, seed, n_sup, split, cfg)
 
     if split == "val":

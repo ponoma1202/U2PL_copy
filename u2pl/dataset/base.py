@@ -5,7 +5,6 @@ import skimage
 from PIL import Image
 from torch.utils.data import Dataset
 import mrcfile
-import tifffile as tiff
 
 
 class BaseDataset(Dataset):
@@ -13,7 +12,7 @@ class BaseDataset(Dataset):
         # parse the input list
         self.parse_input_list(d_list, **kwargs)
 
-    def parse_input_list(self, d_list, max_sample=-1, start_idx=-1, end_idx=-1): # takes the cfg's "stream" and parses into args -VP
+    def parse_input_list(self, d_list, max_sample=-1, start_idx=-1, end_idx=-1):
         logger = logging.getLogger("global")
         assert isinstance(d_list, str)
         if "cityscapes" in d_list:
@@ -35,8 +34,8 @@ class BaseDataset(Dataset):
         elif "v4" in d_list:            # added cryoem to dataset
             self.list_sample = [
                 [
-                    "images/{}.mrc".format(line.strip()),
-                    "gold_truth/{}.tif".format(line.strip())
+                    "images/{}".format(line.strip()),
+                    "gold_truth/{}".format(line.replace(".mrc", ".tif").strip())
                 ]
                 for line in open(d_list, "r")
             ]
@@ -63,8 +62,9 @@ class BaseDataset(Dataset):
             return data
 
     def cryoem_label_loader(self, path):
-        img = skimage.io.imread(path, as_gray=True)
-        return img
+        img = skimage.io.imread(path)
+        img = (img > 0)
+        return img.astype(float)
 
     def __len__(self):
         return self.num_sample
