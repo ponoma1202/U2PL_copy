@@ -28,7 +28,7 @@ class cryoem(BaseDataset):
         self.data_root = data_root
         self.transform = trs_form
         self.cfg = cfg          # added for tiling
-        self.tile_size = self.cfg["train"]["tile_size"]
+        self.tile_size = self.cfg["tile_size"]
 
         step = self.cfg.get("n_steps", 1)
         batch_size = self.cfg.get("batch_size")
@@ -54,17 +54,19 @@ class cryoem(BaseDataset):
         image = self.cryoem_img_loader(image_path)
         label = self.cryoem_label_loader(label_path)        # dimensions are 4096 x 4096
 
-        # Rotate full image
-        _rotate = albumentations.Rotate(limit=(0, 360))
-        rotate_dict = _rotate(image=image, mask=label)
-        image, label = rotate_dict["image"], rotate_dict["mask"]
-
-        # Get random tile and do preprocessing/normalization + transforms
+        # Get distribution before rotation
         distribution = generate_dist(label)
-        result_dict = self.transform(image=image, mask=label)
-        image, label = result_dict["image"].squeeze(), result_dict["mask"]
+
+        # Rotate full image
+        if self.cfg.get("rotate", False):
+            _rotate = albumentations.Rotate(limit=(0, 360))
+            rotate_dict = _rotate(image=image, mask=label)
+            image, label = rotate_dict["image"], rotate_dict["mask"]
 
         image, label = tile(image, label, distribution, self.cfg)     # pass in transformed image, label pair
+
+        result_dict = self.transform(image=image, mask=label)
+        image, label = result_dict["image"].squeeze(), result_dict["mask"]
 
         # reshaping
         image = image.repeat(1, 3, 1, 1)  # duplicate the image 3 times to have 3 channels
@@ -94,7 +96,7 @@ def tile(image, label, distribution, cfg):
     # 1. sample random "center" (future center for tile) within the densest region of image according to PDF
     # 2. using the center, cut the tile
 
-    tile_size = cfg["train"]["tile_size"]
+    tile_size = cfg["tile_size"]
     scale_range = cfg["train"]["percent_scale"]
     tile_size = tile_size * (1.0 + (random.randrange(scale_range[0], scale_range[1]) / 100))
 
@@ -141,7 +143,6 @@ def get_centers(mask, n_tiles=1, tile_size=1024, distribution=None):
 
     idx = np.minimum(np.maximum(idx, tile_size / 2), mask.shape[0] - tile_size / 2).astype(int)
     idy = np.minimum(np.maximum(idy, tile_size / 2), mask.shape[1] - tile_size / 2).astype(int)
-    # print(max(idx), max(idy))
 
     return (idx, idy)
 
@@ -149,15 +150,15 @@ def get_centers(mask, n_tiles=1, tile_size=1024, distribution=None):
 # start my preprocessing code
 def build_transform(cfg):
     chain = []
-    cfg_pre = cfg["train"]["preprocess"]
+    cfg_pre = cfg["train"]
     if cfg.get(cfg_pre["dc_filter"]):           
         chain.append(augment.DC_filter())
     if cfg.get(cfg_pre["median_filter"]):
         chain.append(albumentations.MedianBlur())
     if cfg.get(cfg_pre["normalize"]):           
         chain.append(augment.ZScoreNorm())
-    chain.append(albumentations.Rotate(limit=(0, 360)))
-    chain.append(albumentations.Flip())
+    if cfg.get(cfg_pre["flip"]):
+        chain.append(albumentations.Flip())
     chain.append(albumentations.pytorch.ToTensorV2())
     return albumentations.Compose(chain)
 

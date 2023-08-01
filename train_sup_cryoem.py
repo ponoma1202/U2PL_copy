@@ -205,7 +205,6 @@ def main():
         # os.makedirs(args.prediction_dir)
 
         data_list = iter(train_loader_sup.dataset.list_sample)
-        tile_size = cfg["dataset"]["train"]["tile_size"]
         #scaler = torch.cuda.amp.GradScaler(enabled=args.lower_precision)  # enabled toggles this on or off
         # end for inference debugging
 
@@ -222,7 +221,6 @@ def main():
             train_stats,             # for plateau scheduler
             is_unet,
             data_list,
-            tile_size,
             #scaler                     # for 16 bit float precision
         )
 
@@ -307,7 +305,6 @@ def train(
     train_stats,                     # for plateau scheduler
     is_unet,
     data_list,
-    tile_size
     #scaler                          # for 16 bit float precision
 ):
 
@@ -424,7 +421,7 @@ def train(
         batch_end = time.time()
         batch_times.update(batch_end - batch_start)
 
-        if i_iter % 100 == 0 and rank == 0:
+        if i_iter % 10 == 0 and rank == 0:
             # start Mike's code
             cpu_mem_percent_used = psutil.virtual_memory().percent
             gpu_mem_percent_used, memory_total_info = get_gpu_memory()

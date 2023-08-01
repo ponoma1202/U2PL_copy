@@ -58,13 +58,13 @@ class BaseDataset(Dataset):
 
     def cryoem_img_loader(self, path):
         with mrcfile.open(path) as mrc:
-            data = mrc.data.astype(float)
+            data = mrc.data.astype('float32')
             return data
 
     def cryoem_label_loader(self, path):
-        img = skimage.io.imread(path)
+        img = skimage.io.imread(path, as_gray=True)     # as gray makes pixel values either 0 or 1 by default
         img = (img > 0)
-        return img.astype(float)
+        return img.astype('float32')
 
     def __len__(self):
         return self.num_sample
