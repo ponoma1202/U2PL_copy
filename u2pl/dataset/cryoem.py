@@ -29,6 +29,7 @@ class cryoem(BaseDataset):
         self.transform = trs_form
         self.cfg = cfg          # added for tiling
         self.tile_size = self.cfg["tile_size"]
+        self.image_pdfs = {}
 
         step = self.cfg.get("n_steps", 1)
         batch_size = self.cfg.get("batch_size")
@@ -44,6 +45,12 @@ class cryoem(BaseDataset):
         else:
             self.list_sample_new = self.list_sample
 
+        for img in range(len(self.list_sample_new)):
+            label_path = os.path.join(self.data_root, self.list_sample_new[img][1])
+            label = self.cryoem_label_loader(label_path)
+            distribution = generate_dist(label)
+            self.image_pdfs[label_path] = distribution
+
         self.epoch_len = set_longer_epoch(step, batch_size, len(self.list_sample_new))
 
     def __getitem__(self, index):
@@ -54,16 +61,11 @@ class cryoem(BaseDataset):
         image = self.cryoem_img_loader(image_path)
         label = self.cryoem_label_loader(label_path)        # dimensions are 4096 x 4096
 
-        # Get distribution before rotation
-        distribution = generate_dist(label)
+        preprocess = build_transform_full_img(self.cfg)
+        result_dict = preprocess(image=image, mask=label)
+        image, label = result_dict["image"].squeeze(), result_dict["mask"]
 
-        # Rotate full image
-        if self.cfg.get("rotate", False):
-            _rotate = albumentations.Rotate(limit=(0, 360))
-            rotate_dict = _rotate(image=image, mask=label)
-            image, label = rotate_dict["image"], rotate_dict["mask"]
-
-        image, label = tile(image, label, distribution, self.cfg)     # pass in transformed image, label pair
+        image, label = tile(image, label, self.image_pdfs.get(label_path), self.cfg)     # changed distribution => self.image_pdfs.get(label_path)
 
         result_dict = self.transform(image=image, mask=label)
         image, label = result_dict["image"].squeeze(), result_dict["mask"]
@@ -146,17 +148,24 @@ def get_centers(mask, n_tiles=1, tile_size=1024, distribution=None):
 
     return (idx, idy)
 
+# Do preprocessing and rotation on full image before doing further transformations
+def build_transform_full_img(cfg):
+    chain = []
+    cfg_pre = cfg["train"]
+    if cfg.get(cfg_pre["dc_filter"], False):
+        chain.append(augment.DC_filter())
+    if cfg.get(cfg_pre["median_filter"], False):
+        chain.append(albumentations.MedianBlur())
+    if cfg.get(cfg_pre["normalize"], False):
+        chain.append(augment.ZScoreNorm())
+    if cfg.get(cfg_pre["rotate"], False):
+        chain.append(albumentations.Rotate(limit=(0, 360)))
+    return albumentations.Compose(chain)
 
 # start my preprocessing code
 def build_transform(cfg):
     chain = []
     cfg_pre = cfg["train"]
-    if cfg.get(cfg_pre["dc_filter"]):           
-        chain.append(augment.DC_filter())
-    if cfg.get(cfg_pre["median_filter"]):
-        chain.append(albumentations.MedianBlur())
-    if cfg.get(cfg_pre["normalize"]):           
-        chain.append(augment.ZScoreNorm())
     if cfg.get(cfg_pre["flip"]):
         chain.append(albumentations.Flip())
     chain.append(albumentations.pytorch.ToTensorV2())
