@@ -2,31 +2,26 @@ dataset: # Required.
   type: cryo #pascal
   train:
     data_root: /mnt/isgnas/project/ai/2023-cryoem-segmentation/data/v4 #data/VOC2012
-    data_list: /mnt/isgnas/home/vsp1/U2PL_copy/v4/v3_noRNA_test_copy.txt #/mnt/isgnas/project/ai/2023-cryoem-segmentation/data/v4/v3_noRNA.txt  #labeled.txt
-    flip: True
-    GaussianBlur: False
-    rand_resize: [0.5, 2.0]
-    #rand_rotation: [-10.0, 10.0]
-    preprocess:         # added this for normalization for cryoEM - VP
-      dc_filter: True
-      median_filter: True
-      normalize: True
-    tile_size: 512
+    data_list: /mnt/isgnas/project/ai/2023-cryoem-segmentation/data/v4/v3_noRNA.txt  #v3_noRNA.txt  #labeled.txt
+    rotate: True       # TODO: Edit transformations back to True
+    flip: True        
+    dc_filter: True
+    median_filter: True
+    normalize: True
+    dynamic_crop: True
     percent_scale: [-10, 10]    # +- range of how much will we "zoom" in/out of each tile to help with flexibility in size of cells
-    n_steps: 10
-    crop:
-      type: rand
-      size: [513, 513] # crop image with HxW size
   val:
     data_root: /mnt/isgnas/project/ai/2023-cryoem-segmentation/data/v4 
-    data_list: /mnt/isgnas/project/ai/2023-cryoem-segmentation/data/v4/test_high_contrast.txt  
-    crop:
-      type: center
-      size: [513, 513] # crop image with HxW size
-  batch_size: 2
-  n_sup: 9   # changed for cryoem
+    data_list: /mnt/isgnas/project/ai/2023-cryoem-segmentation/data/v4/test_high_contrast.txt
+    dc_filter: True
+    median_filter: True
+    normalize: True
+  n_steps: 64   # TODO: changed for debugging
+  tile_size: 512
+  batch_size: 8         # TODO: Changed from 8 => 2 for debugging purposes.
+  n_sup: 29              # TODO: changed for debugging
   noise_std: 0.1
-  workers: 0      # TODO: Change after debugging
+  workers: 2   
   mean: [123.675, 116.28, 103.53]
   std: [58.395, 57.12, 57.375]
   ignore_label: 255
@@ -38,7 +33,7 @@ trainer: # Required.
   optimizer:
     type: SGD
     kwargs:
-      lr: 0.001 # 2GPUs
+      lr: 0.001 
       momentum: 0.9
       weight_decay: 0.0001
   lr_scheduler:

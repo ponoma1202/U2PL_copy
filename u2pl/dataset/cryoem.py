@@ -61,6 +61,9 @@ class cryoem(BaseDataset):
         image = self.cryoem_img_loader(image_path)
         label = self.cryoem_label_loader(label_path)        # dimensions are 4096 x 4096
 
+        # Get distribution before rotation
+        #distribution = generate_dist(label)
+
         preprocess = build_transform_full_img(self.cfg)
         result_dict = preprocess(image=image, mask=label)
         image, label = result_dict["image"].squeeze(), result_dict["mask"]
@@ -74,8 +77,9 @@ class cryoem(BaseDataset):
         image = image.repeat(1, 3, 1, 1)  # duplicate the image 3 times to have 3 channels
         label = label.repeat(1, 1, 1, 1)
 
-        image = torch.nn.functional.interpolate(image, (self.tile_size, self.tile_size), mode="bilinear", align_corners=True)
-        label = torch.nn.functional.interpolate(label, (self.tile_size, self.tile_size), mode="bilinear", align_corners=True)
+        if self.cfg.get("dynamic_crop", False):
+            image = torch.nn.functional.interpolate(image, (self.tile_size, self.tile_size), mode="bilinear", align_corners=True)
+            label = torch.nn.functional.interpolate(label, (self.tile_size, self.tile_size), mode="bilinear", align_corners=True)
 
         return image[0], label[0, 0].long()
 
@@ -97,10 +101,11 @@ def tile(image, label, distribution, cfg):
     # TODO: possibly copy Ashira's Tile class to keep track of tile stats
     # 1. sample random "center" (future center for tile) within the densest region of image according to PDF
     # 2. using the center, cut the tile
-
+    
     tile_size = cfg["tile_size"]
-    scale_range = cfg["train"]["percent_scale"]
-    tile_size = tile_size * (1.0 + (random.randrange(scale_range[0], scale_range[1]) / 100))
+    if cfg.get("dynamic_crop", False):
+        scale_range = cfg.get("percent_scale", [0, 0])
+        tile_size = tile_size * (1.0 + (random.randrange(scale_range[0], scale_range[1]) / 100))
 
     x,y = get_centers(label.squeeze(), 1, tile_size=tile_size, distribution=distribution)      # get center of one future tile
     x, y = x[0], y[0]
@@ -151,22 +156,20 @@ def get_centers(mask, n_tiles=1, tile_size=1024, distribution=None):
 # Do preprocessing and rotation on full image before doing further transformations
 def build_transform_full_img(cfg):
     chain = []
-    cfg_pre = cfg["train"]
-    if cfg.get(cfg_pre["dc_filter"], False):
+    if cfg.get("dc_filter", False):
         chain.append(augment.DC_filter())
-    if cfg.get(cfg_pre["median_filter"], False):
+    if cfg.get(cfg["train"]["median_filter"], False):
         chain.append(albumentations.MedianBlur())
-    if cfg.get(cfg_pre["normalize"], False):
+    if cfg.get("normalize", False):
         chain.append(augment.ZScoreNorm())
-    if cfg.get(cfg_pre["rotate"], False):
+    if cfg.get("rotate", False):
         chain.append(albumentations.Rotate(limit=(0, 360)))
     return albumentations.Compose(chain)
 
 # start my preprocessing code
 def build_transform(cfg):
     chain = []
-    cfg_pre = cfg["train"]
-    if cfg.get(cfg_pre["flip"]):
+    if cfg.get("flip", False):
         chain.append(albumentations.Flip())
     chain.append(albumentations.pytorch.ToTensorV2())
     return albumentations.Compose(chain)
