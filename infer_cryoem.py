@@ -32,11 +32,11 @@ from u2pl.dataset.augmentation import ZScoreNorm
 # Setup Parser
 def get_parser():
     parser = ArgumentParser(description="PyTorch Evaluation")
-    parser.add_argument("--config", type=str, default="experiments/pascal/1464/suponly/config.yaml")
+    parser.add_argument("--config", type=str, default="experiments/pascal/1464/suponly/config_cryoem.yaml")
     parser.add_argument(
         "--model_path",
         type=str,
-        default="/home/vsp1/U2PL/sup_stats_1/model-state-dict.pt",        #edited this
+        default="/mnt/isgnas/home/vsp1/U2PL_copy/sup_stats_1/model-state-dict.pt",        #edited this
         help="evaluation model path",
     )
     parser.add_argument(
@@ -115,10 +115,10 @@ def main():
     # preload probability distribution functions
     image_pdfs = {}
     for label_path in data_list:
-        label = skimage.io.imread(label_path[1], as_gray=True)  # as gray makes pixel values either 0 or 1 by default
-        label = (label > 0).astype('float32')
-        distribution = generate_dist(label)
-        image_pdfs[label_path[1]] = distribution
+         label = skimage.io.imread(label_path[1], as_gray=True)  # as gray makes pixel values either 0 or 1 by default
+         label = (label > 0).astype('float32')
+         distribution = generate_dist(label)
+         image_pdfs[label_path[1]] = distribution
 
     model.eval()
     for image_path, label_path in tqdm(data_list):
@@ -138,16 +138,16 @@ def main():
         _toTensor = albumentations.pytorch.ToTensorV2()
         norm_dict = _normalize(image=image)
         image = norm_dict["image"]
-        #image_tile, label_tile = tile(image, label, image_pdfs.get(label_path), cfg=cfg["dataset"])
-        tensor_dict = _toTensor(image=image, mask=label)
-        image, label = tensor_dict["image"], tensor_dict["mask"]
+        image_tile, label_tile = tile(image, label, image_pdfs.get(label_path), cfg=cfg["dataset"])
+        tensor_dict = _toTensor(image=image_tile)  # do not need to turn label into tensor
+        image = tensor_dict["image"]
         image = image.unsqueeze(dim=0)
         image = image.repeat(1, 3, 1, 1)
 
         #image = F.interpolate(image, input_scale, mode="bilinear", align_corners=True)
 
-        input = image.cuda()
-        output = model(input)["pred"]
+        image_in = image.cuda()
+        output = model(image_in)["pred"]
         output = F.interpolate(output, (h, w), mode="bilinear", align_corners=True)
         mask = torch.argmax(output, dim=1).squeeze().cpu().numpy()
 
@@ -157,7 +157,7 @@ def main():
         skimage.io.imsave(os.path.join(gray_folder, image_name), np.uint8(mask), check_contrast=False)
 
         #start my code
-        area_intersection, area_union, area_target = intersectionAndUnion(np.array(mask), np.array(label), 1)
+        area_intersection, area_union, area_target = intersectionAndUnion(np.array(mask), label, 1)   # TODO edited np.array(label) ==> label
         iou = area_intersection / area_union
         iou_folder.write("IoU for " + str(image_name) + " is: " + str(iou) + "\n")
         #end my code
