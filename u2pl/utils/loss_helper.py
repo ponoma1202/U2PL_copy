@@ -235,7 +235,7 @@ def compute_contra_memobank_loss(
             return prototype, new_keys, reco_loss / valid_seg
 
 
-def get_criterion(cfg):
+def get_criterion(cfg, frequency=None):
     cfg_criterion = cfg["criterion"]
     aux_weight = (
         cfg["net"]["aux_loss"]["loss_weight"]
@@ -249,14 +249,14 @@ def get_criterion(cfg):
         )
     else:
         criterion = Criterion(
-            aux_weight, ignore_index=ignore_index, **cfg_criterion["kwargs"]
+            aux_weight, ignore_index=ignore_index, **cfg_criterion["kwargs"], frequency=frequency
         )
 
     return criterion
 
 
 class Criterion(nn.Module):
-    def __init__(self, aux_weight, ignore_index=255, use_weight=False):
+    def __init__(self, aux_weight, ignore_index=255, use_weight=False, frequency=None):
         super(Criterion, self).__init__()
         self._aux_weight = aux_weight
         self._ignore_index = ignore_index
@@ -264,29 +264,30 @@ class Criterion(nn.Module):
         if not use_weight:
             self._criterion = nn.CrossEntropyLoss(ignore_index=ignore_index)
         else:
-            weights = torch.FloatTensor(
-                [
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                    1.0,
-                    1.0,
-                    1.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                    0.0,
-                    1.0,
-                    0.0,
-                    1.0,
-                    1.0,
-                    1.0,
-                ]
-            ).cuda()
+            weights = torch.FloatTensor(frequency).cuda()
+            # weights = torch.FloatTensor(
+            #     [
+            #         0.0,
+            #         0.0,
+            #         0.0,
+            #         1.0,
+            #         1.0,
+            #         1.0,
+            #         1.0,
+            #         0.0,
+            #         0.0,
+            #         1.0,
+            #         0.0,
+            #         0.0,
+            #         1.0,
+            #         0.0,
+            #         1.0,
+            #         0.0,
+            #         1.0,
+            #         1.0,
+            #         1.0,
+            #     ]
+            # ).cuda()
             self._criterion = nn.CrossEntropyLoss(ignore_index=ignore_index)
             self._criterion1 = nn.CrossEntropyLoss(
                 ignore_index=ignore_index, weight=weights

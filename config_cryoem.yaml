@@ -18,10 +18,10 @@ dataset: # Required.
     normalize: True
   n_steps: 64   # TODO: changed for debugging
   tile_size: 512
-  batch_size: 8         # TODO: Changed from 8 => 2 for debugging purposes.
+  batch_size: 16         # TODO: Changed from 8 => 2 for debugging purposes.
   n_sup: 29              # TODO: changed for debugging
   noise_std: 0.1
-  workers: 2   
+  workers: 32   
   mean: [123.675, 116.28, 103.53]
   std: [58.395, 57.12, 57.375]
   ignore_label: 255
@@ -48,7 +48,7 @@ saver:
 criterion:
   type: CELoss
   kwargs:  
-    use_weight: False
+    use_weight: True
 
 net: # Required.
   num_classes: 2

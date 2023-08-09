@@ -45,21 +45,26 @@ class cryoem(BaseDataset):
         else:
             self.list_sample_new = self.list_sample
 
+        # preload image, label, distribution as Dataset object
         for img in range(len(self.list_sample_new)):
+            image_path = os.path.join(self.data_root, self.list_sample_new[img][0])
             label_path = os.path.join(self.data_root, self.list_sample_new[img][1])
+            image = self.cryoem_img_loader(image_path)
             label = self.cryoem_label_loader(label_path)
             distribution = generate_dist(label)
-            self.image_pdfs[label_path] = distribution
+            self.image_pdfs[label_path] = [image, label, distribution]
 
         self.epoch_len = set_longer_epoch(step, batch_size, len(self.list_sample_new))
 
     def __getitem__(self, index):
         # load image and its label
         index = index % len(self.list_sample_new)
-        image_path = os.path.join(self.data_root, self.list_sample_new[index][0])       # edited because of artificially lengthening the epoch
+        #image_path = os.path.join(self.data_root, self.list_sample_new[index][0])       # edited because of artificially lengthening the epoch
         label_path = os.path.join(self.data_root, self.list_sample_new[index][1])       # edited because of artificially lengthening the epoch
-        image = self.cryoem_img_loader(image_path)
-        label = self.cryoem_label_loader(label_path)        # dimensions are 4096 x 4096
+        #image = self.cryoem_img_loader(image_path)
+        #label = self.cryoem_label_loader(label_path)        # dimensions are 4096 x 4096
+        image = self.image_pdfs.get(label_path)[0]
+        label = self.image_pdfs.get(label_path)[1]
 
         # Get distribution before rotation
         #distribution = generate_dist(label)
@@ -68,7 +73,7 @@ class cryoem(BaseDataset):
         result_dict = preprocess(image=image, mask=label)
         image, label = result_dict["image"].squeeze(), result_dict["mask"]
 
-        image, label = tile(image, label, self.image_pdfs.get(label_path), self.cfg)     # changed distribution => self.image_pdfs.get(label_path)
+        image, label = tile(image, label, self.image_pdfs.get(label_path[2]), self.cfg)     # changed distribution => self.image_pdfs.get(label_path)
 
         result_dict = self.transform(image=image, mask=label)
         image, label = result_dict["image"].squeeze(), result_dict["mask"]
@@ -158,7 +163,7 @@ def build_transform_full_img(cfg):
     chain = []
     if cfg.get("dc_filter", False):
         chain.append(augment.DC_filter())
-    if cfg.get(cfg["train"]["median_filter"], False):
+    if cfg.get(cfg["val"]["median_filter"], False):
         chain.append(albumentations.MedianBlur())
     if cfg.get("normalize", False):
         chain.append(augment.ZScoreNorm())

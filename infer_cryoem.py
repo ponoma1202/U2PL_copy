@@ -72,6 +72,8 @@ def main():
     os.makedirs(gray_folder, exist_ok=True)
     color_folder = os.path.join(args.save_folder, "color")
     os.makedirs(color_folder, exist_ok=True)
+    original_images = os.path.join(args.save_folder, "original")
+    os.makedirs(original_images, exist_ok=True)
 
     cfg_dset = cfg["dataset"]
     data_root, f_data_list = cfg_dset["val"]["data_root"], cfg_dset["val"]["data_list"]
@@ -155,6 +157,8 @@ def main():
         skimage.io.imsave(os.path.join(color_folder, image_name), np.uint8(color_mask), check_contrast=False)
 
         skimage.io.imsave(os.path.join(gray_folder, image_name), np.uint8(mask), check_contrast=False)
+
+        skimage.io.imsave(os.path.join(original_images, image_name), label_tile, check_contrast=False)
 
         #start my code
         area_intersection, area_union, area_target = intersectionAndUnion(np.array(mask), label, 1)   # TODO edited np.array(label) ==> label
