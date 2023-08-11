@@ -28,15 +28,15 @@ from u2pl.utils.utils import (
 # Setup Parser
 def get_parser():
     parser = ArgumentParser(description="PyTorch Evaluation")
-    parser.add_argument("--config", type=str, default="config.yaml")
+    parser.add_argument("--config", type=str, default="experiments/pascal/1464/suponly/config.yaml")
     parser.add_argument(
         "--model_path",
         type=str,
-        default="stats/model-state-dict.pt",        #edited this
+        default="/home/vsp1/U2PL/all_stats/resnet_remote_stats/sup_stats_no_pretrain_27-06-2023/model-state-dict.pt",        #edited this
         help="evaluation model path",
     )
     parser.add_argument(
-        "--save_folder", type=str, default="semi_infer_results_old", help="results save folder"
+        "--save_folder", type=str, default="sup_infer_experiment", help="results save folder"
     )
     return parser
 
@@ -101,13 +101,13 @@ def main():
 
     cfg["net"]["sync_bn"] = False
     model = ModelBuilder(cfg["net"])
-    # checkpoint = torch.load("/home/vsp1/U2PL/stats/model.pt")          # getting Mike's saved model
-    # checkpoint = torch.load(args.model_path)
-    # key = "teacher_state" if "teacher_state" in checkpoint.keys() else "model_state"
-    # logger.info(f"=> load checkpoint[{key}]")
+    checkpoint = torch.load(args.model_path)
+    key = "teacher_state" if "teacher_state" in checkpoint.keys() else "model_state"
+    logger.info(f"=> load checkpoint[{key}]")
 
-    saved_state_dict = torch.load(args.model_path)
-    # saved_state_dict = convert_state_dict(checkpoint["model_state"])
+    saved_state_dict = torch.load(args.model_path)        # get Mike's model
+    #saved_state_dict = checkpoint["model_state"]           #my version
+    #saved_state_dict = convert_state_dict(checkpoint["model_state"])
     model.load_state_dict(saved_state_dict, strict=False)
     model.cuda()
     logger.info("Load Model Done!")
@@ -153,7 +153,7 @@ def main():
         #start my code
         label = Image.open(label_path).convert("L")
         label = np.asarray(label).astype(np.uint8)
-        area_intersection, area_union, area_target = intersectionAndUnion(np.array(mask), np.array(label), 1)
+        area_intersection, area_union, area_target = intersectionAndUnion(np.array(mask), np.array(label), cfg["net"]["num_classes"])
         iou = area_intersection / area_union
         iou_folder.write("IoU for " + str(image_name) + " is: " + str(iou) + "\n")
 

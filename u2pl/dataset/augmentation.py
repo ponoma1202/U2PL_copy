@@ -113,34 +113,35 @@ class Normalize(object):
         return image, label
 
 
-class Z_score (object):
-    """
-    Calculate mean and std of each channel in each image.
-    Normalize each image according to its mean and std.
-    """
-    def __call__(self, image, label):
+# class Z_score (object):
+#     """
+#     Calculate mean and std of each channel in each image.
+#     Normalize each image according to its mean and std.
+#     """
+#     def __call__(self, image, label):
+#
+#         # check if image is in N*C*H*W format and take z-score of the batch
+#         if (image.dim() == 4):
+#             mean = torch.mean(image, dim=(2, 3))      # or dim=(1, 2)
+#             mean = mean[:, :, np.newaxis].permute(1, 2, 0)
+#             std = torch.std(image, dim=(2, 3))
+#             std = std[:, :, np.newaxis].permute(1, 2, 0)
+#             assert len(mean) == len(std)
+#
+#             image = image - mean
+#             image = image / std
+#             return image, label
+#         else:
+#             mean = torch.mean(image, dim=(1, 2))  # or dim=(1, 2)
+#             mean = mean[:, np.newaxis, np.newaxis]
+#             std = torch.std(image, dim=(1, 2))
+#             std = std[:, np.newaxis, np.newaxis]
+#             assert len(mean) == len(std)
+#
+#             image = image - mean
+#             image = image / std
+#             return image.unsqueeze(0), label
 
-        # check if image is in N*C*H*W format and take z-score of the batch
-        if (image.dim() == 4):
-            mean = torch.mean(image, dim=(2, 3))      # or dim=(1, 2)
-            mean = mean[:, :, np.newaxis].permute(1, 2, 0)
-            std = torch.std(image, dim=(2, 3))
-            std = std[:, :, np.newaxis].permute(1, 2, 0)
-            assert len(mean) == len(std)
-
-            image = image - mean
-            image = image / std
-            return image, label
-        else:
-            mean = torch.mean(image, dim=(1, 2))  # or dim=(1, 2)
-            mean = mean[:, np.newaxis, np.newaxis]
-            std = torch.std(image, dim=(1, 2))
-            std = std[:, np.newaxis, np.newaxis]
-            assert len(mean) == len(std)
-
-            image = image - mean
-            image = image / std
-            return image.unsqueeze(0), label
 
 # start Mike's Z-score norm
 class ZScoreNorm(albumentations.core.transforms_interface.ImageOnlyTransform):
@@ -165,35 +166,41 @@ class DC_filter(albumentations.core.transforms_interface.ImageOnlyTransform):
     def __init__(self, always_apply: bool = False, p: float = 1.0):
         super().__init__(always_apply=always_apply, p=p)
 
-    def apply(self, image, sigma:150, **params):
-        filtered = gaussian_filter(image, sigma, mode='reflect')
-        zero_noise = normalize(image - filtered)
+    def apply(self, img, sigma: int = 150, **params):
+        filtered = gaussian_filter(img, sigma, mode='reflect')
+        norm = Normalize_()
+        zero_noise = norm.apply(img - filtered)
         return zero_noise
 
 # end Ashira's implementation
 
+
 # TODO: Change this into a class that inherits from albumentations
 # start Ashira's normalize implementation
-def normalize(image_data, resolution=65535.0):
-    image_data = image_data.astype(float)  # if data coming in is int16
+class Normalize_(albumentations.core.transforms_interface.ImageOnlyTransform):
+    def __init__(self, always_apply: bool = False, p: float = 1.0):
+        super().__init__(always_apply=always_apply, p=p)
 
-    std = np.std(image_data)
-    mv = np.mean(image_data)
-    image_data = (image_data - mv) / std
+    def apply(self, image_data, resolution: float=65545.0, **params):
+        image_data = image_data.astype(float)  # if data coming in is int16
 
-    # limit range to +-5
-    rangeMin = max(np.min(image_data), -5)
-    rangeMax = min(np.max(image_data), 5)
-    image_data[image_data > rangeMax] = rangeMax
-    image_data[image_data < rangeMin] = rangeMin
+        std = np.std(image_data)
+        mv = np.mean(image_data)
+        image_data = (image_data - mv) / std
 
-    # make data 0-1
-    pmin = np.min(image_data)
-    pmax = np.max(image_data)
-    image_data = (image_data - pmin) / (pmax - pmin)
+        # limit range to +-5
+        rangeMin = max(np.min(image_data), -5)
+        rangeMax = min(np.max(image_data), 5)
+        image_data[image_data > rangeMax] = rangeMax
+        image_data[image_data < rangeMin] = rangeMin
 
-    image_data = image_data * (resolution)
-    return image_data  # .astype(np.float32)
+        # make data 0-1
+        pmin = np.min(image_data)
+        pmax = np.max(image_data)
+        image_data = (image_data - pmin) / (pmax - pmin)
+
+        image_data = image_data * (resolution)
+        return image_data  # .astype(np.float32)
 #end Ashira's normalize implementation
 
 

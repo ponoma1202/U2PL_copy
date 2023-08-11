@@ -44,12 +44,6 @@ parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--output_dirpath", type=str, default="./stats")
 #parser.add_argument("--port", default=None, type=int)
 
-#logger = init_log("global", logging.INFO)
-#logger.propagate = 0
-logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",             # Mike's logger
-                        handlers=[logging.StreamHandler()])
-
 
 def main():
     global args, cfg
@@ -57,11 +51,17 @@ def main():
     seed = args.seed
     cfg = yaml.load(open(args.config, "r"), Loader=yaml.Loader)
 
+    # logger = init_log("global", logging.INFO)
+    # logger.propagate = 0
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",  # Mike's logger
+                        handlers=[logging.StreamHandler()])
+
     cfg["exp_path"] = os.path.dirname(args.config)
     cfg["save_path"] = os.path.join(cfg["exp_path"], cfg["saver"]["snapshot_dir"])
 
-    cudnn.enabled = True
-    cudnn.benchmark = True
+    #cudnn.enabled = True
+    #cudnn.benchmark = True
 
     #rank, word_size = setup_distributed(port=args.port)
 
@@ -110,6 +110,7 @@ def main():
     # Optimizer and lr decay scheduler
     cfg_trainer = cfg["trainer"]
     cfg_optim = cfg_trainer["optimizer"]
+    # TODO Get rid of line below and see what happens
     times = 10 if "pascal" in cfg["dataset"]["type"] else 1
 
     params_list = []
@@ -127,6 +128,7 @@ def main():
     best_prec = 0
     last_epoch = 0
 
+    # TODO: Not used. Delete
     # auto_resume > pretrain
     if cfg["saver"].get("auto_resume", False):
         lastest_model = os.path.join(cfg["save_path"], "ckpt.pth")
@@ -141,6 +143,7 @@ def main():
     elif cfg["saver"].get("pretrain", False):
         load_state(cfg["saver"]["pretrain"], model, key="model_state")
 
+    # TODO: Delete
     optimizer_old = get_optimizer(params_list, cfg_optim)
     lr_scheduler = get_scheduler(
         cfg_trainer, len(train_loader_sup), optimizer_old, start_epoch=last_epoch
@@ -194,6 +197,7 @@ def main():
         # Validation and store checkpoint
         prec = validate(model, val_loader, epoch, train_stats, criterion)
 
+        # TODO: Delete entire save code
         if rank == 0:
             state = {
                 "epoch": epoch,
@@ -209,7 +213,7 @@ def main():
                     state, osp.join(cfg["saver"]["snapshot_dir"], "ckpt_best.pth")
                 )
 
-            torch.save(model.state_dict(), osp.join(cfg["saver"]["snapshot_dir"], "model-state-dict.pth"))
+            torch.save(state, osp.join(cfg["saver"]["snapshot_dir"], "model-state-dict.pth"))
 
             # logger.info(
             #     "\033[31m * Currently, the best val result is: {:.2f}\033[0m".format(
@@ -272,6 +276,7 @@ def train(
     #rank, world_size = dist.get_rank(), dist.get_world_size()
     rank = 0
 
+    # TODO: replace these with train_stats parameters
     losses = AverageMeter(10)
     data_times = AverageMeter(10)
     batch_times = AverageMeter(10)
@@ -279,7 +284,7 @@ def train(
 
     # start Mike's code
     start_time = time.time()
-    per_class_accuracy = []
+    #per_class_accuracy = []
     # end Mike's code
 
     batch_end = time.time()
@@ -287,7 +292,6 @@ def train(
         batch_start = time.time()
         data_times.update(batch_start - batch_end)
 
-        i_iter = epoch * len(data_loader) + step
         # lr = lr_scheduler.get_lr()
         # learning_rates.update(lr[0])
         # lr_scheduler.step()
@@ -299,6 +303,7 @@ def train(
         pred = outs["pred"]
         pred = F.interpolate(pred, (h, w), mode="bilinear", align_corners=True)
 
+        # TODO: Delete aux loss
         if "aux_loss" in cfg["net"].keys():
             aux = outs["aux"]
             aux = F.interpolate(aux, (h, w), mode="bilinear", align_corners=True)
@@ -327,7 +332,7 @@ def train(
         batch_end = time.time()
         batch_times.update(batch_end - batch_start)
 
-        if i_iter % 100 == 0 and rank == 0:
+        if step % 100 == 0 and rank == 0:
             # start Mike's code
             cpu_mem_percent_used = psutil.virtual_memory().percent
             gpu_mem_percent_used, memory_total_info = get_gpu_memory()
@@ -342,7 +347,7 @@ def train(
                 "LR {lr.val:.5f} ({lr.avg:.5f})\t"
                 "cpu_mem: {cpu_mem:2.1f}%\t"
                 "gpu_mem: {gpu_mem}% of {total_mem}MiB\t".format(
-                    i_iter,
+                    step,
                     cfg["trainer"]["epochs"] * len(data_loader),
                     data_time=data_times,
                     batch_time=batch_times,

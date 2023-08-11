@@ -72,6 +72,8 @@ def main():
     os.makedirs(gray_folder, exist_ok=True)
     color_folder = os.path.join(args.save_folder, "color")
     os.makedirs(color_folder, exist_ok=True)
+    ground_truth = os.path.join(args.save_folder, "ground_truth")
+    os.makedirs(ground_truth, exist_ok=True)
     original_images = os.path.join(args.save_folder, "original")
     os.makedirs(original_images, exist_ok=True)
 
@@ -129,7 +131,6 @@ def main():
         # Get image
         with mrcfile.open(image_path) as mrc:
             image = mrc.data.astype('float32')
-        h, w = image.shape
 
         # Get label
         label = skimage.io.imread(label_path, as_gray=True)  # as gray makes pixel values either 0 or 1 by default
@@ -141,6 +142,7 @@ def main():
         norm_dict = _normalize(image=image)
         image = norm_dict["image"]
         image_tile, label_tile = tile(image, label, image_pdfs.get(label_path), cfg=cfg["dataset"])
+        h, w = image_tile.shape
         tensor_dict = _toTensor(image=image_tile)  # do not need to turn label into tensor
         image = tensor_dict["image"]
         image = image.unsqueeze(dim=0)
@@ -158,10 +160,14 @@ def main():
 
         skimage.io.imsave(os.path.join(gray_folder, image_name), np.uint8(mask), check_contrast=False)
 
-        skimage.io.imsave(os.path.join(original_images, image_name), label_tile, check_contrast=False)
+        skimage.io.imsave(os.path.join(ground_truth, image_name), label_tile, check_contrast=False)
+
+        skimage.io.imsave(os.path.join(original_images, image_name), image_tile, check_contrast=False)
 
         #start my code
-        area_intersection, area_union, area_target = intersectionAndUnion(np.array(mask), label, 1)   # TODO edited np.array(label) ==> label
+        #logging.info("Mask shape: {}".format(np.array(mask).shape))
+        #logging.info("Label tile shape: {}".format(label_tile.shape))
+        area_intersection, area_union, area_target = intersectionAndUnion(np.array(mask), label_tile, cfg["net"]["num_classes"])   # TODO edited np.array(label) ==> label
         iou = area_intersection / area_union
         iou_folder.write("IoU for " + str(image_name) + " is: " + str(iou) + "\n")
         #end my code
@@ -182,7 +188,8 @@ def create_pascal_label_colormap():
     """
     colormap = 255 * np.ones((256, 3), dtype=np.uint8)
     colormap[0] = [0, 0, 0]
-    colormap[1] = [128, 0, 0]
+    colormap[1] = [255, 255, 255]
+    #colormap[1] = [128, 0, 0]
     colormap[2] = [0, 128, 0]
     colormap[3] = [128, 128, 0]
     colormap[4] = [0, 0, 128]
