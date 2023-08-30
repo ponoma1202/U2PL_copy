@@ -2,8 +2,6 @@ import argparse
 import logging
 import os
 import os.path as osp
-import pprint
-import random
 import time
 from datetime import datetime
 
@@ -105,19 +103,9 @@ def main():
     best_prec = 0
     last_epoch = 0
 
-    # TODO: Not used. Delete
+    # TODO: Not used. Delete. Already deleted part of it.
     # auto_resume > pretrain
-    if cfg["saver"].get("auto_resume", False):
-        lastest_model = os.path.join(cfg["save_path"], "ckpt.pth")
-        if not os.path.exists(lastest_model):
-            "No checkpoint found in '{}'".format(lastest_model)
-        else:
-            print(f"Resume model from: '{lastest_model}'")
-            best_prec, last_epoch = load_state(
-                lastest_model, model, optimizer=optimizer, key="model_state"
-            )
-
-    elif cfg["saver"].get("pretrain", False):
+    if cfg["saver"].get("pretrain", False):
         load_state(cfg["saver"]["pretrain"], model, key="model_state")
 
     # start Mike's code
@@ -135,7 +123,6 @@ def main():
     # add the file based handler to the logger
     logging.getLogger().addHandler(logging.FileHandler(filename=os.path.join(args.output_dirpath, 'log.txt')))
     train_start_time = time.time()
-
     # end Mike's code
 
     # Start to train model
@@ -180,29 +167,29 @@ def main():
                     state, osp.join(cfg["saver"]["snapshot_dir"], "ckpt_best.pth")
                 )
 
-            torch.save(state, osp.join(cfg["saver"]["snapshot_dir"], "model-state-dict.pth"))
+        torch.save(model.state_dict(), osp.join(cfg["saver"]["snapshot_dir"], "model-state-dict.pth"))
 
-            # start Mike's code
+        # start Mike's code
 
-            # val_loss = train_stats.get_epoch('val_loss', epoch=epoch) - commented out in Mike's code
-            val_accuracy = train_stats.get_epoch('val_accuracy', epoch=epoch)
-            plateau_scheduler.step(val_accuracy)
+        # val_loss = train_stats.get_epoch('val_loss', epoch=epoch) - commented out in Mike's code
+        val_accuracy = train_stats.get_epoch('val_accuracy', epoch=epoch)
+        plateau_scheduler.step(val_accuracy)
 
-            # update global metadata stats
-            train_stats.add_global('train_wall_time', train_stats.get('train_wall_time', aggregator='sum'))
-            train_stats.add_global('val_wall_time', train_stats.get('val_wall_time', aggregator='sum'))
-            train_stats.add_global('num_epochs_trained', epoch)
+        # update global metadata stats
+        train_stats.add_global('train_wall_time', train_stats.get('train_wall_time', aggregator='sum'))
+        train_stats.add_global('val_wall_time', train_stats.get('val_wall_time', aggregator='sum'))
+        train_stats.add_global('num_epochs_trained', epoch)
 
-            # handle early stopping when loss converges
-            if plateau_scheduler.is_equiv_to_best_epoch:
-                logging.info('Updating best model with epoch: {} accuracy: {}'.format(epoch, val_accuracy))
-                best_model = copy.deepcopy(model)
-                # update the global metrics with the best epoch
-                train_stats.update_global(epoch)
-                # save a state dict (weights only) version of the model
-                torch.save(best_model.state_dict(), os.path.join(args.output_dirpath, 'model-state-dict.pt'))
+        # handle early stopping when loss converges
+        if plateau_scheduler.is_equiv_to_best_epoch:
+            logging.info('Updating best model with epoch: {} accuracy: {}'.format(epoch, val_accuracy))
+            best_model = copy.deepcopy(model)
+            # update the global metrics with the best epoch
+            train_stats.update_global(epoch)
+            # save a state dict (weights only) version of the model
+            torch.save(best_model.state_dict(), os.path.join(args.output_dirpath, 'model-state-dict.pt'))
 
-            # end Mike's code
+        # end Mike's code
 
     # start Mike's code
     wall_time = time.time() - train_start_time

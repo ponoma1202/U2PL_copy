@@ -15,12 +15,6 @@ from skimage.measure import label, regionprops
 
 @torch.no_grad()
 def gather_together(data):
-    # dist.barrier()
-
-    # world_size = dist.get_world_size()
-    # gather_data = [None for _ in range(world_size)]
-    # dist.all_gather_object(gather_data, data)
-
     return [data]
 
 
@@ -57,44 +51,6 @@ def label_onehot(inputs, num_segments):
     outputs[:, inputs == 255] = 0
 
     return outputs.permute(1, 0, 2, 3)
-
-
-def get_world_size():
-    return 1
-    # if not dist.is_available():
-    #     return 1
-    # if not dist.is_initialized():
-    #     return 1
-    # return dist.get_world_size()
-
-
-def get_rank():
-    return 0
-    # if not dist.is_available():
-    #     return 0
-    # if not dist.is_initialized():
-    #     return 0
-    # return dist.get_rank()
-
-
-def is_main_process():
-    return get_rank() == 0
-
-
-def synchronize():
-    """
-    Helper function to synchronize (barrier) among all processes when
-    using distributed training
-    """
-    return
-    # if not dist.is_available():
-    #     return
-    # if not dist.is_initialized():
-    #     return
-    # world_size = dist.get_world_size()
-    # if world_size == 1:
-    #     return
-    # dist.barrier()
 
 
 def cal_pixel_num(pred_map):

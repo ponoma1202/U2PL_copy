@@ -4,15 +4,10 @@ import os
 import os.path
 import random
 
-import numpy as np
-import torch
-import torch.distributed as dist
 from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
 
 from . import augmentation as psp_trsform
 from .base import BaseDataset
-from .sampler import DistributedGivenIterationSampler
 
 
 class city_dset(BaseDataset):
@@ -79,7 +74,6 @@ def build_transfrom(cfg):
 
 def build_cityloader(split, all_cfg, seed=0):
     cfg_dset = all_cfg["dataset"]
-    cfg_trainer = all_cfg["trainer"]
 
     cfg = copy.deepcopy(cfg_dset)
     cfg.update(cfg.get(split, {}))
@@ -93,12 +87,10 @@ def build_cityloader(split, all_cfg, seed=0):
     dset = city_dset(cfg["data_root"], cfg["data_list"], trs_form, seed, n_sup, split)
 
     # build sampler
-    sample = DistributedSampler(dset)
     loader = DataLoader(
         dset,
         batch_size=batch_size,
         num_workers=workers,
-        sampler=sample,
         shuffle=False,
         pin_memory=False,
     )
@@ -122,12 +114,10 @@ def build_city_semi_loader(split, all_cfg, seed=0):
 
     if split == "val":
         # build sampler
-        sample = DistributedSampler(dset)
         loader = DataLoader(
             dset,
             batch_size=batch_size,
             num_workers=workers,
-            sampler=sample,
             shuffle=False,
             pin_memory=True,
         )
@@ -140,23 +130,19 @@ def build_city_semi_loader(split, all_cfg, seed=0):
             cfg["data_root"], data_list_unsup, trs_form_unsup, seed, n_sup, split
         )
 
-        sample_sup = DistributedSampler(dset)
         loader_sup = DataLoader(
             dset,
             batch_size=batch_size,
             num_workers=workers,
-            sampler=sample_sup,
             shuffle=False,
             pin_memory=True,
             drop_last=True,
         )
 
-        sample_unsup = DistributedSampler(dset_unsup)
         loader_unsup = DataLoader(
             dset_unsup,
             batch_size=batch_size,
             num_workers=workers,
-            sampler=sample_unsup,
             shuffle=False,
             pin_memory=True,
             drop_last=True,

@@ -10,7 +10,6 @@ import torch.nn.functional as F
 import torch.nn.parallel
 import torch.optim
 import torch.utils.data
-import torchvision
 import yaml
 from PIL import Image
 from tqdm import tqdm
@@ -105,9 +104,8 @@ def main():
     key = "teacher_state" if "teacher_state" in checkpoint.keys() else "model_state"
     logger.info(f"=> load checkpoint[{key}]")
 
-    saved_state_dict = torch.load(args.model_path)        # get Mike's model
+    saved_state_dict = checkpoint        # get Mike's model
     #saved_state_dict = checkpoint["model_state"]           #my version
-    #saved_state_dict = convert_state_dict(checkpoint["model_state"])
     model.load_state_dict(saved_state_dict, strict=False)
     model.cuda()
     logger.info("Load Model Done!")
@@ -126,28 +124,20 @@ def main():
     for image_path, label_path in tqdm(data_list):
         image_name = image_path.split("/")[-1]
 
-        #image = Image.open(image_path).convert("RGB")
         image = skimage.io.imread(image_path)
-        #image = np.asarray(image).astype(np.float32)
         h, w, _ = image.shape
         image = (image - mean) / std
         image = torch.Tensor(image).permute(2, 0, 1)
-        image = image.unsqueeze(dim=0)                          # Ex: changes from (2, 513, 513) to (1, 2, 513, 513) - VP
+        image = image.unsqueeze(dim=0)
         image = F.interpolate(image, input_scale, mode="bilinear", align_corners=True)
 
-        input = image.cuda()
-        output = model(input)["pred"]
-        #output = net_process(model, image)
+        output = net_process(model, image)
         output = F.interpolate(output, (h, w), mode="bilinear", align_corners=True)
         mask = torch.argmax(output, dim=1).squeeze().cpu().numpy()
 
-        #color_mask = Image.fromarray(colorful(mask, colormap))
-        #color_mask.save(os.path.join(color_folder, image_name))
         color_mask = colorful(mask,colormap)
         skimage.io.imsave(os.path.join(color_folder, image_name), np.uint8(color_mask), check_contrast=False)
 
-        #mask = Image.fromarray(np.uint8(mask)) # Changed mask => mask.astype(np.uint8)
-        #mask.save(os.path.join(gray_folder, image_name))
         skimage.io.imsave(os.path.join(gray_folder, image_name), np.uint8(mask), check_contrast=False)
 
         #start my code
@@ -156,7 +146,6 @@ def main():
         area_intersection, area_union, area_target = intersectionAndUnion(np.array(mask), np.array(label), cfg["net"]["num_classes"])
         iou = area_intersection / area_union
         iou_folder.write("IoU for " + str(image_name) + " is: " + str(iou) + "\n")
-
         #end my code
 
 
