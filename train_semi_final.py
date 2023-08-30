@@ -1,37 +1,32 @@
 import argparse
-import copy
 import logging
 import os
 import os.path as osp
-import pprint
-import random
 import time
 from datetime import datetime
 
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
-#import torch.distributed as dist
 import torch.nn.functional as F
 import yaml
 from tensorboardX import SummaryWriter
-import shutil                                                   # For Mike's code           #1
-from pytorch_utils import lr_scheduler as lr_scheduler_custom   # For Mike's code
-from pytorch_utils import metadata                              # For Mike's code
-import copy                                                     # For Mike's code
-import psutil                                                     # For Mike's code
-import subprocess                                                     # For Mike's code
+import shutil
+from pytorch_utils import lr_scheduler as lr_scheduler_custom
+from pytorch_utils import metadata
+import copy
+import psutil
+import subprocess
 
 from u2pl.dataset.augmentation import generate_unsup_data
 from u2pl.dataset.builder import get_loader
 from u2pl.models.model_helper import ModelBuilder
-#from u2pl.utils.dist_helper import setup_distributed
 from u2pl.utils.loss_helper import (
     compute_contra_memobank_loss,
     compute_unsupervised_loss,
     get_criterion,
 )
-from u2pl.utils.lr_helper import get_optimizer, get_scheduler
+from u2pl.utils.lr_helper import get_optimizer
 from u2pl.utils.utils import (
     AverageMeter,
     intersectionAndUnion,
@@ -41,12 +36,9 @@ from u2pl.utils.utils import (
 )
 
 parser = argparse.ArgumentParser(description="Semi-Supervised Semantic Segmentation")
-#Changed config.yaml path. Was referencing ~/U2PL/config.yaml previously.
 parser.add_argument("--config", type=str, default="experiments/pascal/1464/ours/config.yaml")
-#parser.add_argument("--local_rank", type=int, default=0)
 parser.add_argument("--seed", type=int, default=0)
-#parser.add_argument("--port", default=None, type=int)
-parser.add_argument("--output_dirpath", type=str, default="./stats")    #1
+parser.add_argument("--output_dirpath", type=str, default="./stats")
 
 
 def main():
@@ -55,8 +47,6 @@ def main():
     seed = args.seed
     cfg = yaml.load(open(args.config, "r"), Loader=yaml.Loader)
 
-    #logger = init_log("global", logging.INFO)      #1
-    #logger.propagate = 0
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",  # Mike's logger
                         handlers=[logging.StreamHandler()])
@@ -64,29 +54,18 @@ def main():
     cfg["exp_path"] = os.path.dirname(args.config)
     cfg["save_path"] = os.path.join(cfg["exp_path"], cfg["saver"]["snapshot_dir"])
 
+    # TODO: Delete
     cudnn.enabled = True
     cudnn.benchmark = True
 
-    #rank, word_size = setup_distributed(port=args.port)
-
-    rank = 0
-    # if rank == 0:                                                                 #1
-    #     logger.info("{}".format(pprint.pformat(cfg)))
-    #     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-    #     tb_logger = SummaryWriter(
-    #         osp.join(cfg["exp_path"], "log/events_seg/" + current_time)
-    #     )
-    # else:
-    #     tb_logger = None
-
-    current_time = datetime.now().strftime("%Y%m%d_%H%M%S")                                             #2
-    tb_logger = SummaryWriter(osp.join(cfg["exp_path"], "log/events_seg/" + current_time))              #2
+    current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+    tb_logger = SummaryWriter(osp.join(cfg["exp_path"], "log/events_seg/" + current_time))
 
     if args.seed is not None:
         print("set random seed to", args.seed)
         set_random_seed(args.seed)
 
-    if not osp.exists(cfg["saver"]["snapshot_dir"]) and rank == 0:
+    if not osp.exists(cfg["saver"]["snapshot_dir"]):
         os.makedirs(cfg["saver"]["snapshot_dir"])
 
     # Create network
@@ -123,53 +102,18 @@ def main():
 
     optimizer = get_optimizer(params_list, cfg_optim)
 
-    #local_rank = int(os.environ["LOCAL_RANK"])
-    # model = torch.nn.parallel.DistributedDataParallel(
-    #     model,
-    #     device_ids=[local_rank],
-    #     output_device=local_rank,
-    #     find_unused_parameters=False,
-    # )
-
     # Teacher model
     model_teacher = ModelBuilder(cfg["net"])
     model_teacher = model_teacher.cuda()
-
-    # model_teacher = torch.nn.parallel.DistributedDataParallel(
-    #     model_teacher,
-    #     device_ids=[local_rank],
-    #     output_device=local_rank,
-    #     find_unused_parameters=False,
-    # )
 
     for p in model_teacher.parameters():
         p.requires_grad = False
 
     best_prec = 0
-    last_epoch = 0
 
-    # auto_resume > pretrain
-    if cfg["saver"].get("auto_resume", False):
-        lastest_model = os.path.join(cfg["save_path"], "ckpt.pth")
-        if not os.path.exists(lastest_model):
-            "No checkpoint found in '{}'".format(lastest_model)
-        else:
-            print(f"Resume model from: '{lastest_model}'")
-            best_prec, last_epoch = load_state(
-                lastest_model, model, optimizer=optimizer, key="model_state"
-            )
-            _, _ = load_state(
-                lastest_model, model_teacher, optimizer=optimizer, key="teacher_state"
-            )
-
-    elif cfg["saver"].get("pretrain", False):
+    if cfg["saver"].get("pretrain", False):
         load_state(cfg["saver"]["pretrain"], model, key="model_state")
         load_state(cfg["saver"]["pretrain"], model_teacher, key="teacher_state")
-
-    optimizer_start = get_optimizer(params_list, cfg_optim)
-    lr_scheduler = get_scheduler(
-        cfg_trainer, len(train_loader_sup), optimizer_start, start_epoch=last_epoch
-    )
 
     # start Mike's code
     if os.path.exists(args.output_dirpath):
@@ -210,9 +154,8 @@ def main():
     ).cuda()
 
     # Start to train model
-    #for epoch in range(last_epoch, cfg_trainer["epochs"]):
 
-    # start Mike's code                 #1
+    # start Mike's code
     while not plateau_scheduler.is_done():
         epoch += 1
         logging.info("Epoch: {}".format(epoch))
@@ -228,14 +171,10 @@ def main():
             model,
             model_teacher,
             optimizer,
-            plateau_scheduler,
-            #lr_scheduler,              #1
             sup_loss_fn,
             train_loader_sup,
             train_loader_unsup,
             epoch,
-            tb_logger,          #2
-            #logger,
             memobank,
             queue_ptrlis,
             queue_size,
@@ -244,68 +183,59 @@ def main():
 
         # Validation
         if cfg_trainer["eval_on"]:
-            if rank == 0:
-                logging.info("start evaluation")                 #1
+            logging.info("start evaluation")
 
             if epoch < cfg["trainer"].get("sup_only_epoch", 1):
-                prec = validate(model, val_loader, epoch, train_stats, sup_loss_fn)  #prec = validate(model, val_loader, epoch, logger)               #1
+                prec = validate(model, val_loader, epoch, train_stats, sup_loss_fn)
             else:
-                prec = validate(model_teacher, val_loader, epoch, train_stats, sup_loss_fn)  #prec = validate(model_teacher, val_loader, epoch, logger)             #1
+                prec = validate(model_teacher, val_loader, epoch, train_stats, sup_loss_fn)
 
-            if rank == 0:
-                state = {
-                    "epoch": epoch + 1,
-                    "model_state": model.state_dict(),
-                    "optimizer_state": optimizer.state_dict(),
-                    "teacher_state": model_teacher.state_dict(),
-                    "best_miou": best_prec,
-                }
-                if prec > best_prec:
-                    best_prec = prec
-                    torch.save(
-                        state, osp.join(cfg["saver"]["snapshot_dir"], "ckpt_best.pth")
-                    )
+            # TODO: Delete save code.
+            state = {
+                "epoch": epoch + 1,
+                "model_state": model.state_dict(),
+                "optimizer_state": optimizer.state_dict(),
+                "teacher_state": model_teacher.state_dict(),
+                "best_miou": best_prec,
+            }
+            if prec > best_prec:
+                best_prec = prec
+                torch.save(
+                    state, osp.join(cfg["saver"]["snapshot_dir"], "ckpt_best.pth")
+                )
 
-                torch.save(state, osp.join(cfg["saver"]["snapshot_dir"], "ckpt.pth"))
+            torch.save(state, osp.join(cfg["saver"]["snapshot_dir"], "ckpt.pth"))
 
-                # logger.info(
-                #     "\033[31m * Currently, the best val result is: {:.2f}\033[0m".format(
-                #         best_prec * 100
-                #     )
-                # )
-
-                tb_logger.add_scalar("mIoU val", prec, epoch)               #2
+            tb_logger.add_scalar("mIoU val", prec, epoch)
 
 
-                # start Mike's code             #1
-                val_accuracy = train_stats.get_epoch('val_accuracy', epoch=epoch)
-                plateau_scheduler.step(val_accuracy)
+            # start Mike's code
+            val_accuracy = train_stats.get_epoch('val_accuracy', epoch=epoch)
+            plateau_scheduler.step(val_accuracy)
 
-                # update global metadata stats          #2
-                train_stats.add_global('train_wall_time', train_stats.get('train_wall_time', aggregator='sum'))
-                train_stats.add_global('val_wall_time', train_stats.get('val_wall_time', aggregator='sum'))
-                train_stats.add_global('num_epochs_trained', epoch)
+            # update global metadata stats
+            train_stats.add_global('train_wall_time', train_stats.get('train_wall_time', aggregator='sum'))
+            train_stats.add_global('val_wall_time', train_stats.get('val_wall_time', aggregator='sum'))
+            train_stats.add_global('num_epochs_trained', epoch)
 
-                # handle early stopping when loss converges         #1
-                if plateau_scheduler.is_equiv_to_best_epoch:
-                    logging.info('Updating best model with epoch: {} accuracy: {}'.format(epoch, val_accuracy))
-                    best_model = copy.deepcopy(model)
-                    # update the global metrics with the best epoch
-                    train_stats.update_global(epoch)
-                    # save a state dict (weights only) version of the model
-                    torch.save(best_model.state_dict(), os.path.join(args.output_dirpath, 'model-state-dict.pt'))
+            # handle early stopping when loss converges
+            if plateau_scheduler.is_equiv_to_best_epoch:
+                logging.info('Updating best model with epoch: {} accuracy: {}'.format(epoch, val_accuracy))
+                best_model = copy.deepcopy(model)
+                # update the global metrics with the best epoch
+                train_stats.update_global(epoch)
+                # save a state dict (weights only) version of the model
+                torch.save(best_model.state_dict(), os.path.join(args.output_dirpath, 'model-state-dict.pt'))
 
-                # end Mike's code
+            # end Mike's code
 
     # start Mike's code
-    #2
     wall_time = time.time() - train_start_time
     train_stats.add_global('wall_time', wall_time)
     logging.info("Total WallTime: {}seconds".format(train_stats.get_global('wall_time')))
 
-    # 1
     train_stats.export(args.output_dirpath)  # update metrics data on disk
-    train_stats.plot_all_metrics(output_dirpath=args.output_dirpath)            #2
+    train_stats.plot_all_metrics(output_dirpath=args.output_dirpath)
     best_model.cpu()  # move to cpu before saving to simplify loading the model
     # save a python class embedded version of the model
     torch.save(best_model, os.path.join(args.output_dirpath, 'model.pt'))
@@ -318,13 +248,10 @@ def train(
     model,
     model_teacher,
     optimizer,
-    lr_scheduler,
     sup_loss_fn,
     loader_l,
     loader_u,
     epoch,
-    tb_logger,          #2
-    #logger,
     memobank,
     queue_ptrlis,
     queue_size,
@@ -335,46 +262,35 @@ def train(
 
     model.train()
 
-    #loader_l.sampler.set_epoch(epoch)
-    #loader_u.sampler.set_epoch(epoch)
-    loader_l_iter = iter(loader_l)
     loader_u_iter = iter(loader_u)
     assert len(loader_l) == len(
         loader_u
     ), f"labeled data {len(loader_l)} unlabeled data {len(loader_u)}, imbalance!"
-
-    #rank, world_size = dist.get_rank(), dist.get_world_size()
 
     sup_losses = AverageMeter(10)
     uns_losses = AverageMeter(10)
     con_losses = AverageMeter(10)
     data_times = AverageMeter(10)
     batch_times = AverageMeter(10)
-    learning_rates = AverageMeter(10)
 
-    # start Mike's code     #2
+    # start Mike's code
     start_time = time.time()
-    student_per_class_accuracy = []
-    teacher_per_class_accuracy = []
     # end Mike's code
 
     batch_end = time.time()
-    for step, tensor_l_dict in enumerate(loader_l): #range(len(loader_l)):
+    for step, tensor_l_dict in enumerate(loader_l):
         batch_start = time.time()
         data_times.update(batch_start - batch_end)
 
         i_iter = epoch * len(loader_l) + step
-        #lr = lr_scheduler.get_lr()                 #1
-        #learning_rates.update(lr[0])
-        #lr_scheduler.step()
 
-        image_l, label_l = tensor_l_dict #loader_l_iter.next()
+        image_l, label_l = tensor_l_dict
         batch_size, h, w = label_l.size()
         image_l, label_l = image_l.cuda(), label_l.cuda()
 
-        image_u, label_u = next(loader_u_iter) #loader_u_iter.next()          #2
+        image_u, label_u = next(loader_u_iter)
         image_u = image_u.cuda()
-        label_u = label_u.cuda().detach()       #2
+        label_u = label_u.cuda().detach()
 
         if epoch < cfg["trainer"].get("sup_only_epoch", 1):
             contra_flag = "none"
@@ -414,13 +330,11 @@ def train(
             pred_u_teacher = F.softmax(pred_u_teacher, dim=1)
             logits_u_aug, label_u_aug = torch.max(pred_u_teacher, dim=1)
 
-            # start Mike's code             #2
+            # start Mike's code
             accuracy = torch.mean((label_u_aug == label_u / label_u.numel()).type(
-                torch.FloatTensor))  # changed to label_u.numel() division
+                torch.FloatTensor))
             train_stats.append_accumulate('teacher_pseudo_labeling_accuracy', accuracy.item())
             # end Mike's code
-
-            #TODO: add teacher per class accuracy
 
             # apply strong data augmentation: cutout, cutmix, or classmix
             if np.random.uniform(0, 1) < 0.5 and cfg["trainer"]["unsupervised"].get(
@@ -448,14 +362,12 @@ def train(
                 pred_u, size=(h, w), mode="bilinear", align_corners=True
             )
 
-            # start Mike's code                         #2
+            # start Mike's code
             pred_student = torch.argmax(pred_u_large, dim=1)
             accuracy = torch.mean((pred_student == label_u / label_u.numel()).type(
-                torch.FloatTensor))  # changed to label_u.numel() division
+                torch.FloatTensor))
             train_stats.append_accumulate('student_pseudo_labeling_accuracy', accuracy.item())
             # end Mike's code
-
-            #TODO: add student per class accuracy
 
             # supervised loss
             if "aux_loss" in cfg["net"].keys():
@@ -575,14 +487,15 @@ def train(
                         mode="nearest",
                     )
 
-                if cfg_contra.get("binary", False):
-                    contra_flag += " BCE"
-                    contra_loss = compute_binary_memobank_loss(
+                if not cfg_contra.get("anchor_ema", False):
+                    new_keys, contra_loss = compute_contra_memobank_loss(
                         rep_all,
-                        torch.cat((label_l_small, label_u_small)).long(),
+                        label_l_small.long(),
+                        label_u_small.long(),
+                        prob_l_teacher.detach(),
+                        prob_u_teacher.detach(),
                         low_mask_all,
                         high_mask_all,
-                        prob_all_teacher.detach(),
                         cfg_contra,
                         memobank,
                         queue_ptrlis,
@@ -590,39 +503,22 @@ def train(
                         rep_all_teacher.detach(),
                     )
                 else:
-                    if not cfg_contra.get("anchor_ema", False):
-                        new_keys, contra_loss = compute_contra_memobank_loss(
-                            rep_all,
-                            label_l_small.long(),
-                            label_u_small.long(),
-                            prob_l_teacher.detach(),
-                            prob_u_teacher.detach(),
-                            low_mask_all,
-                            high_mask_all,
-                            cfg_contra,
-                            memobank,
-                            queue_ptrlis,
-                            queue_size,
-                            rep_all_teacher.detach(),
-                        )
-                    else:
-                        prototype, new_keys, contra_loss = compute_contra_memobank_loss(
-                            rep_all,
-                            label_l_small.long(),
-                            label_u_small.long(),
-                            prob_l_teacher.detach(),
-                            prob_u_teacher.detach(),
-                            low_mask_all,
-                            high_mask_all,
-                            cfg_contra,
-                            memobank,
-                            queue_ptrlis,
-                            queue_size,
-                            rep_all_teacher.detach(),
-                            prototype,
-                        )
+                    prototype, new_keys, contra_loss = compute_contra_memobank_loss(
+                        rep_all,
+                        label_l_small.long(),
+                        label_u_small.long(),
+                        prob_l_teacher.detach(),
+                        prob_u_teacher.detach(),
+                        low_mask_all,
+                        high_mask_all,
+                        cfg_contra,
+                        memobank,
+                        queue_ptrlis,
+                        queue_size,
+                        rep_all_teacher.detach(),
+                        prototype,
+                    )
 
-               # dist.all_reduce(contra_loss)
                 world_size = 1
                 contra_loss = (
                     contra_loss
@@ -648,21 +544,18 @@ def train(
 
         # gather all loss from different gpus
         reduced_sup_loss = sup_loss.clone().detach()
-        #dist.all_reduce(reduced_sup_loss)
         sup_losses.update(reduced_sup_loss.item())
 
         reduced_uns_loss = unsup_loss.clone().detach()
-        #dist.all_reduce(reduced_uns_loss)
         uns_losses.update(reduced_uns_loss.item())
 
         reduced_con_loss = contra_loss.clone().detach()
-        #dist.all_reduce(reduced_con_loss)
         con_losses.update(reduced_con_loss.item())
 
         batch_end = time.time()
         batch_times.update(batch_end - batch_start)
 
-        # start Mike's code             #2
+        # start Mike's code
         train_stats.append_accumulate('train_loss', loss.item())
         train_stats.append_accumulate('supervised_loss', reduced_sup_loss.item())
         train_stats.append_accumulate('unsupervised_loss', reduced_uns_loss.item())
@@ -670,18 +563,16 @@ def train(
         train_stats.append_accumulate('learning_rates', optimizer.param_groups[0]['lr'])
         # end Mike's code
 
-        rank = 0
-        if i_iter % 100 == 0 and rank == 0:         #1
-            # start Mike's code         #2
+        if i_iter % 100 == 0:
+            # start Mike's code
             cpu_mem_percent_used = psutil.virtual_memory().percent
             gpu_mem_percent_used, memory_total_info = get_gpu_memory()
             gpu_mem_percent_used = [np.round(100 * x, 1) for x in gpu_mem_percent_used]
             # end Mike's code
 
-            logging.info(  # 1
+            logging.info(
                 "[{}][{}] "
                 "Iter [{}/{}]\t"
-                #"Data {data_time.val:.2f} ({data_time.avg:.2f})\t"     #1
                 "Time {batch_time.val:.2f} ({batch_time.avg:.2f})\t"
                 "Sup {sup_loss.val:.3f} ({sup_loss.avg:.3f})\t"
                 "Uns {uns_loss.val:.3f} ({uns_loss.avg:.3f})\t"
@@ -698,26 +589,19 @@ def train(
                     sup_loss=sup_losses,
                     uns_loss=uns_losses,
                     con_loss=con_losses,
-                    lr=optimizer.param_groups[0]['lr'],  # 1
-                    cpu_mem=cpu_mem_percent_used,           #2
+                    lr=optimizer.param_groups[0]['lr'],
+                    cpu_mem=cpu_mem_percent_used,
                     gpu_mem=gpu_mem_percent_used,
                     total_mem=memory_total_info
                 )
             )
 
-            #tb_logger.add_scalar("lr", learning_rates.val, i_iter)              #2
-            #tb_logger.add_scalar("Sup_Loss", sup_losses.val, i_iter)
-            #tb_logger.add_scalar("Uns_Loss", uns_losses.val, i_iter)
-            #tb_logger.add_scalar("Con_Loss", con_losses.val, i_iter)
-
-    # start Mike's code         #2
+    # start Mike's code
     train_stats.close_accumulate(epoch, 'train_loss', method='avg')  # this adds the avg loss to the train stats
     train_stats.close_accumulate(epoch, "supervised_loss", method='avg')
     train_stats.close_accumulate(epoch, "unsupervised_loss", method='avg')
     train_stats.close_accumulate(epoch, "contrastive_loss", method='avg')
     train_stats.close_accumulate(epoch, 'learning_rates', method='avg')
-
-    #TODO: add ARI and per class accuracy
 
     train_stats.close_accumulate(epoch, 'teacher_pseudo_labeling_accuracy', method='avg')
     train_stats.close_accumulate(epoch, 'student_pseudo_labeling_accuracy', method='avg')
@@ -726,7 +610,7 @@ def train(
     # end Mike's code
 
 
-# start Mike's code         #2
+# start Mike's code
 def get_gpu_memory():
     command = "nvidia-smi --query-gpu=memory.used --format=csv"
     memory_used_info = subprocess.check_output(command.split()).decode('ascii').split('\n')[:-1][1:]
@@ -742,23 +626,20 @@ def validate(
     model,
     data_loader,
     epoch,
-    #logger,
-    train_stats,         # for Mike's code          #1
-    criterion            # for Mike's code
+    train_stats,
+    criterion
 ):
-    # start Mike's code         #2
+    # start Mike's code
     logging.info('Evaluating model against validation data')
     start_time = time.time()
     # end Mike's code
 
     model.eval()
-    #data_loader.sampler.set_epoch(epoch)
 
     num_classes, ignore_label = (
         cfg["net"]["num_classes"],
         cfg["dataset"]["ignore_label"],
     )
-    #rank, world_size = dist.get_rank(), dist.get_world_size()
 
     intersection_meter = AverageMeter()
     union_meter = AverageMeter()
@@ -777,12 +658,12 @@ def validate(
             output, labels.shape[1:], mode="bilinear", align_corners=True
         )
 
-        # start Mike's code         #1
+        # start Mike's code
         loss = criterion(output, labels)
         train_stats.append_accumulate('val_loss', loss.item())
         pred = torch.argmax(output, dim=1)
         accuracy = torch.mean(
-            (pred == labels / labels.numel()).type(torch.FloatTensor))  # changed to labels.numel() division
+            (pred == labels / labels.numel()).type(torch.FloatTensor))
         train_stats.append_accumulate('val_accuracy', accuracy.item())
         # end Mike's code
 
@@ -797,11 +678,6 @@ def validate(
         # gather all validation information
         reduced_intersection = torch.from_numpy(intersection).cuda()
         reduced_union = torch.from_numpy(union).cuda()
-        reduced_target = torch.from_numpy(target).cuda()
-
-        #dist.all_reduce(reduced_intersection)
-        #dist.all_reduce(reduced_union)
-        #dist.all_reduce(reduced_target)
 
         intersection_meter.update(reduced_intersection.cpu().numpy())
         union_meter.update(reduced_union.cpu().numpy())
@@ -809,17 +685,15 @@ def validate(
     iou_class = intersection_meter.sum / (union_meter.sum + 1e-10)
 
     # close out the accumulating stats with the specified method
-    #TODO: add more stats
     train_stats.append_accumulate('iou', [metric for metric in iou_class])
     train_stats.close_accumulate(epoch, 'iou', method='avg')
-    train_stats.close_accumulate(epoch, 'val_loss', method='avg')           #2
-    # this adds the avg loss to the train stats
+    train_stats.close_accumulate(epoch, 'val_loss', method='avg')
     train_stats.close_accumulate(epoch, 'val_accuracy', method='avg')
-    train_stats.add(epoch, 'val_wall_time', time.time() - start_time)       #2
+    train_stats.add(epoch, 'val_wall_time', time.time() - start_time)
 
     mIoU = np.mean(iou_class)
 
-    for i, iou in enumerate(iou_class):                         #2
+    for i, iou in enumerate(iou_class):
         logging.info(" * class [{}] IoU {:.2f}".format(i, iou * 100))
     logging.info(" * epoch {} mIoU {:.2f}".format(epoch, mIoU * 100))
 
