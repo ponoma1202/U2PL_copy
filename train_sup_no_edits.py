@@ -2,8 +2,6 @@ import argparse
 import logging
 import os
 import os.path as osp
-import pprint
-import random
 import time
 from datetime import datetime
 

@@ -1,28 +1,38 @@
 # Using Unreliable Pseudo Labels
 
-Official PyTorch implementation of [Semi-Supervised Semantic Segmentation Using Unreliable Pseudo Labels](https://arxiv.org/abs/2203.03884), CVPR 2022.
+Modified model from [Semi-Supervised Semantic Segmentation Using Unreliable Pseudo Labels](https://arxiv.org/abs/2203.03884), CVPR 2022.
 
-Please refer to our **[project page](https://haochen-wang409.github.io/U2PL/)** for qualitative results.
+Refer to [U2PL GitHub](https://github.com/ponoma1202/U2PL_copy/blob/main/README.md) for the official U2PL model. 
 
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/semi-supervised-semantic-segmentation-using-2/semi-supervised-semantic-segmentation-on-21)](https://paperswithcode.com/sota/semi-supervised-semantic-segmentation-on-21?p=semi-supervised-semantic-segmentation-using-2)
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/semi-supervised-semantic-segmentation-using-2/semi-supervised-semantic-segmentation-on-4)](https://paperswithcode.com/sota/semi-supervised-semantic-segmentation-on-4?p=semi-supervised-semantic-segmentation-using-2)
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/semi-supervised-semantic-segmentation-using-2/semi-supervised-semantic-segmentation-on-9)](https://paperswithcode.com/sota/semi-supervised-semantic-segmentation-on-9?p=semi-supervised-semantic-segmentation-using-2)
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/semi-supervised-semantic-segmentation-using-2/semi-supervised-semantic-segmentation-on-15)](https://paperswithcode.com/sota/semi-supervised-semantic-segmentation-on-15?p=semi-supervised-semantic-segmentation-using-2)
+## Installation Guide
+After cloning,
+```
+conda create -n u2pl python=3.8.16
+pip install -r requirements.txt
+pip install torch=2.0.1 torchvision=0.15.2 -f https://github.com/ponoma1202/U2PL_copy/blob/main/README.md
+```
 
+### Setting Up the Data
+The U2PL model is trained on both Citiscapes and PASCAL VOC 2012 datasets.
 
-> **Abstract.** 
-> The crux of semi-supervised semantic segmentation is to assign adequate pseudo-labels to the pixels of unlabeled images. 
-> A common practice is to select the highly confident predictions as the pseudo ground-truth, but it leads to a problem that most pixels may be left unused due to their unreliability. 
-> We argue that every pixel matters to the model training, even its prediction is ambiguous. 
-> Intuitively, an unreliable prediction may get confused among the top classes (*i.e*., those with the highest probabilities), 
-> however, it should be confident about the pixel not belonging to the remaining classes. 
-> Hence, such a pixel can be convincingly treated as a negative sample to those most unlikely categories. 
-> Based on this insight, we develop an effective pipeline to make sufficient use of unlabeled data. 
-> Concretely, we separate reliable and unreliable pixels via the entropy of predictions, push each unreliable pixel to a category-wise queue that consists of negative samples, and manage to train the model with all candidate pixels. 
-> Considering the training evolution, where the prediction becomes more and more accurate, we adaptively adjust the threshold for the reliable-unreliable partition. 
-> Experimental results on various benchmarks and training settings demonstrate the superiority of our approach over the state-of-the-art alternatives.
+### Directory Guide
+- `data/splits` contains all labeled.txt and unlabeled.txt splits.
+- `experiments/pascal/1464/ours/config.yaml` contains config file for semi-supervised model using the PASCAL VOC dataset
+- `pytorch_utils/lr_scheduler` contains learning rate scheduler with early stopping
+- `pytroch_utils/metadata.py` is a tracker for metadata such as training accuracy, learning rate, loss, etc
+- `u2pl/dataset/pascal_voc.py` is the DataSet class for the PASCAL VOC dataset
+- TODO: edit hierarchy of dataset and dataloader constructors to make everything more concise (basically follow Mike's tips)
 
-![](./img/pipeline.png)
+## Input Arguments
+- **config**: specify file path for configuration file (.yaml)
+- **seed**: set to 2 in original U2PL model
+- **output_dirpath**: specify file path for output directory for plots of tracked parameters and copy of the dictionary of the trained model
+
+## Inferencing
+Use the infer.py file with the following arguments:
+- **config**: specify file path for configuration file (.yaml) used during training
+- **model_path**: path to the model-state-dict.py file which should be located in the `output_dirpath`
+- **save_folder**: path to folder into which inferencing images will be saved
 
 ## Results
 ### PASCAL VOC 2012
