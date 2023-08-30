@@ -4,11 +4,7 @@ import os
 import os.path
 import random
 
-import numpy as np
-import torch
-from torch.utils.data import DataLoader, Dataset
-#from torch.utils.data.distributed import DistributedSampler
-from torchvision import transforms
+from torch.utils.data import DataLoader
 
 from . import augmentation as psp_trsform
 from .base import BaseDataset
@@ -22,9 +18,10 @@ class voc_dset(BaseDataset):
         self.data_root = data_root
         self.transform = trs_form
         random.seed(seed)
+        # TODO: Delete most of this and just keep list_sample
         if len(self.list_sample) >= n_sup and split == "train":     # if desired length, put images in random order
             self.list_sample_new = random.sample(self.list_sample, n_sup)
-        elif len(self.list_sample) < n_sup and split == "train":            # if less than desired length, lengthen list with repeat images and randomly sample
+        elif len(self.list_sample) < n_sup and split == "train":            # if less than desired length, lengthen list with randomly repeated images
             num_repeat = math.ceil(n_sup / len(self.list_sample))
             self.list_sample = self.list_sample * num_repeat
 
@@ -84,14 +81,10 @@ def build_vocloader(split, all_cfg, seed=0):
     trs_form = build_transfrom(cfg)
     dset = voc_dset(cfg["data_root"], cfg["data_list"], trs_form, seed, n_sup)
 
-    # build sampler
-#    sample = DistributedSampler(dset)
-
     loader = DataLoader(
         dset,
         batch_size=batch_size,
         num_workers=workers,
- #       sampler=sample,
         shuffle=False,
         pin_memory=False,
     )
@@ -115,12 +108,10 @@ def build_voc_semi_loader(split, all_cfg, seed=0):
 
     if split == "val":
         # build sampler
-  #      sample = DistributedSampler(dset)
         loader = DataLoader(
             dset,
             batch_size=batch_size,
             num_workers=workers,
-   #         sampler=sample,
             shuffle=False,
             pin_memory=True,
         )
@@ -133,23 +124,19 @@ def build_voc_semi_loader(split, all_cfg, seed=0):
             cfg["data_root"], data_list_unsup, trs_form_unsup, seed, n_sup, split
         )
 
-    #    sample_sup = DistributedSampler(dset)
         loader_sup = DataLoader(
             dset,
             batch_size=batch_size,
             num_workers=workers,
-     #       sampler=sample_sup,
             shuffle=False,
             pin_memory=True,
             drop_last=True,
         )
 
-     #   sample_unsup = DistributedSampler(dset_unsup)
         loader_unsup = DataLoader(
             dset_unsup,
             batch_size=batch_size,
             num_workers=workers,
-      #      sampler=sample_unsup,
             shuffle=False,
             pin_memory=True,
             drop_last=True,

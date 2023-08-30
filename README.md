@@ -15,6 +15,12 @@ pip install torch=2.0.1 torchvision=0.15.2 -f https://github.com/ponoma1202/U2PL
 ### Setting Up the Data
 The U2PL model is trained on both Citiscapes and PASCAL VOC 2012 datasets.
 
+For Cityscapes:
+TODO: Copy the paper
+
+For ResNet:
+TODO: copy their instructions but be more clear on specifying the path to resnet101 in the u2pl/models/resnet.py file.
+
 ### Directory Guide
 - `data/splits` contains all labeled.txt and unlabeled.txt splits.
 - `experiments/pascal/1464/ours/config.yaml` contains config file for semi-supervised model using the PASCAL VOC dataset

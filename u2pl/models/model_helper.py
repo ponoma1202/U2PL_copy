@@ -1,23 +1,18 @@
 import importlib
 
 import torch.nn as nn
-from torch.nn import functional as F
 
 from .decoder import Aux_Module
 
 
 class ModelBuilder(nn.Module):
-    def __init__(self, net_cfg, is_unet=False):
+    def __init__(self, net_cfg):
         super(ModelBuilder, self).__init__()
         self._sync_bn = net_cfg["sync_bn"]
         self._num_classes = net_cfg["num_classes"]
-        self.is_unet = is_unet
 
-        if (is_unet):
-            self.unet = self._build_unet(net_cfg["unet"])
-        else:
-            self.encoder = self._build_encoder(net_cfg["encoder"])
-            self.decoder = self._build_decoder(net_cfg["decoder"])
+        self.encoder = self._build_encoder(net_cfg["encoder"])
+        self.decoder = self._build_decoder(net_cfg["decoder"])
 
         self._use_auxloss = True if net_cfg.get("aux_loss", False) else False
         self.fpn = True if net_cfg["encoder"]["kwargs"].get("fpn", False) else False
@@ -27,10 +22,6 @@ class ModelBuilder(nn.Module):
             self.auxor = Aux_Module(
                 cfg_aux["aux_plane"], self._num_classes, self._sync_bn
             )
-
-    def _build_unet(self, net_cfg):
-        unet = self._build_module(net_cfg["type"], net_cfg["kwargs"])
-        return unet
 
     def _build_encoder(self, enc_cfg):
         enc_cfg["kwargs"].update({"sync_bn": self._sync_bn})
@@ -69,9 +60,6 @@ class ModelBuilder(nn.Module):
             outs.update({"aux": pred_aux})
             return outs
         else:
-            if self.is_unet:
-                return self.unet(x)
-            else:
-                feat = self.encoder(x)
-                outs = self.decoder(feat)
-                return outs
+            feat = self.encoder(x)
+            outs = self.decoder(feat)
+            return outs

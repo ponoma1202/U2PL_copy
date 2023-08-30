@@ -5,13 +5,11 @@ import random
 
 import cv2
 import numpy as np
-import scipy.ndimage
 import torch
 from PIL import Image
 from scipy.ndimage import gaussian_filter
 from torch import nn
 from torch.nn import functional as F
-import albumentations.core.transforms_interface
 
 
 class Compose(object):
@@ -111,97 +109,6 @@ class Normalize(object):
             image -= self.mean
             image /= self.std
         return image, label
-
-
-# class Z_score (object):
-#     """
-#     Calculate mean and std of each channel in each image.
-#     Normalize each image according to its mean and std.
-#     """
-#     def __call__(self, image, label):
-#
-#         # check if image is in N*C*H*W format and take z-score of the batch
-#         if (image.dim() == 4):
-#             mean = torch.mean(image, dim=(2, 3))      # or dim=(1, 2)
-#             mean = mean[:, :, np.newaxis].permute(1, 2, 0)
-#             std = torch.std(image, dim=(2, 3))
-#             std = std[:, :, np.newaxis].permute(1, 2, 0)
-#             assert len(mean) == len(std)
-#
-#             image = image - mean
-#             image = image / std
-#             return image, label
-#         else:
-#             mean = torch.mean(image, dim=(1, 2))  # or dim=(1, 2)
-#             mean = mean[:, np.newaxis, np.newaxis]
-#             std = torch.std(image, dim=(1, 2))
-#             std = std[:, np.newaxis, np.newaxis]
-#             assert len(mean) == len(std)
-#
-#             image = image - mean
-#             image = image / std
-#             return image.unsqueeze(0), label
-
-
-# start Mike's Z-score norm
-class ZScoreNorm(albumentations.core.transforms_interface.ImageOnlyTransform):
-    def __init__(self, always_apply: bool = False, p: float = 1.0):
-        # default p of 1.0 ensures it always called, unless the user overrides
-        super().__init__(always_apply=always_apply, p=p)
-
-    def apply(self, img, **params):
-        img = img.astype(np.float32)
-
-        std = np.std(img)
-        mv = np.mean(img)
-        # z-score normalize
-        img = (img - mv) / std
-
-        return img
-# end Mike's z-score norm
-
-
-# start Ashira's DC filtering method
-class DC_filter(albumentations.core.transforms_interface.ImageOnlyTransform):
-    def __init__(self, always_apply: bool = False, p: float = 1.0):
-        super().__init__(always_apply=always_apply, p=p)
-
-    def apply(self, img, sigma: int = 150, **params):
-        filtered = gaussian_filter(img, sigma, mode='reflect')
-        norm = Normalize_()
-        zero_noise = norm.apply(img - filtered)
-        return zero_noise
-
-# end Ashira's implementation
-
-
-# TODO: Change this into a class that inherits from albumentations
-# start Ashira's normalize implementation
-class Normalize_(albumentations.core.transforms_interface.ImageOnlyTransform):
-    def __init__(self, always_apply: bool = False, p: float = 1.0):
-        super().__init__(always_apply=always_apply, p=p)
-
-    def apply(self, image_data, resolution: float=65545.0, **params):
-        image_data = image_data.astype(float)  # if data coming in is int16
-
-        std = np.std(image_data)
-        mv = np.mean(image_data)
-        image_data = (image_data - mv) / std
-
-        # limit range to +-5
-        rangeMin = max(np.min(image_data), -5)
-        rangeMax = min(np.max(image_data), 5)
-        image_data[image_data > rangeMax] = rangeMax
-        image_data[image_data < rangeMin] = rangeMin
-
-        # make data 0-1
-        pmin = np.min(image_data)
-        pmax = np.max(image_data)
-        image_data = (image_data - pmin) / (pmax - pmin)
-
-        image_data = image_data * (resolution)
-        return image_data  # .astype(np.float32)
-#end Ashira's normalize implementation
 
 
 class Resize(object):
@@ -587,63 +494,8 @@ def generate_class_mask(pseudo_labels):
     mask = (pseudo_labels.unsqueeze(-1) == labels_select).any(-1)
     return mask.float()
 
-# for training accuracy - VP
-def generate_unsup_data(data, target, logits, label_u, mode="cutout"):      # added label_u argument to debug -VP
-    batch_size, _, im_h, im_w = data.shape
-    device = data.device
 
-    new_data = []
-    new_target = []
-    new_logits = []
-    new_label_u = []
-    for i in range(batch_size):
-        if mode == "cutout":
-            mix_mask = generate_cutout_mask([im_h, im_w], ratio=2).to(device)
-            target[i][(1 - mix_mask).bool()] = 255
-
-            new_data.append((data[i] * mix_mask).unsqueeze(0))
-            new_target.append(target[i].unsqueeze(0))
-            new_logits.append((logits[i] * mix_mask).unsqueeze(0))
-            new_label_u.append(label_u[i].unsqueeze(0))
-            continue
-
-        if mode == "cutmix":
-            mix_mask = generate_cutout_mask([im_h, im_w]).to(device)
-        if mode == "classmix":
-            mix_mask = generate_class_mask(target[i]).to(device)
-
-        new_data.append(
-            (
-                data[i] * mix_mask + data[(i + 1) % batch_size] * (1 - mix_mask)
-            ).unsqueeze(0)
-        )
-        new_target.append(
-            (
-                target[i] * mix_mask + target[(i + 1) % batch_size] * (1 - mix_mask)
-            ).unsqueeze(0)
-        )
-        new_logits.append(
-            (
-                logits[i] * mix_mask + logits[(i + 1) % batch_size] * (1 - mix_mask)
-            ).unsqueeze(0)
-        )
-
-        new_label_u.append(
-            (
-                    label_u[i] * mix_mask + label_u[(i + 1) % batch_size] * (1 - mix_mask)
-            ).unsqueeze(0)
-        )
-
-    new_data, new_target, new_logits, new_label_u = (
-        torch.cat(new_data),
-        torch.cat(new_target),
-        torch.cat(new_logits),
-        torch.cat(new_label_u)
-    )
-    return new_data, new_target.long(), new_logits, new_label_u
-
-# original generate_unsup_data method - VP
-def generate_unsup_data_original(data, target, logits, mode="cutout"):      # added label_u argument to debug -VP
+def generate_unsup_data(data, target, logits, mode="cutout"):
     batch_size, _, im_h, im_w = data.shape
     device = data.device
 
@@ -684,6 +536,6 @@ def generate_unsup_data_original(data, target, logits, mode="cutout"):      # ad
     new_data, new_target, new_logits = (
         torch.cat(new_data),
         torch.cat(new_target),
-        torch.cat(new_logits)
+        torch.cat(new_logits),
     )
     return new_data, new_target.long(), new_logits

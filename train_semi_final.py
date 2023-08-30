@@ -34,9 +34,6 @@ from u2pl.utils.loss_helper import (
 from u2pl.utils.lr_helper import get_optimizer, get_scheduler
 from u2pl.utils.utils import (
     AverageMeter,
-    get_rank,
-    get_world_size,
-    init_log,
     intersectionAndUnion,
     label_onehot,
     load_state,

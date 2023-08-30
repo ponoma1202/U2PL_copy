@@ -1,10 +1,7 @@
 import logging
-import os.path
 
-import skimage
 from PIL import Image
 from torch.utils.data import Dataset
-import mrcfile
 
 
 class BaseDataset(Dataset):
@@ -31,14 +28,6 @@ class BaseDataset(Dataset):
                 ]
                 for line in open(d_list, "r")
             ]
-        elif "v4" in d_list:            # added cryoem to dataset
-            self.list_sample = [
-                [
-                    "images/{}".format(line.strip()),
-                    "gold_truth/{}".format(line.replace(".mrc", ".tif").strip())
-                ]
-                for line in open(d_list, "r")
-            ]
         else:
             raise "unknown dataset!"
 
@@ -55,16 +44,6 @@ class BaseDataset(Dataset):
         with open(path, "rb") as f:
             img = Image.open(f)
             return img.convert(mode)
-
-    def cryoem_img_loader(self, path):
-        with mrcfile.open(path) as mrc:
-            data = mrc.data.astype('float32')
-            return data
-
-    def cryoem_label_loader(self, path):
-        img = skimage.io.imread(path, as_gray=True)     # as gray makes pixel values either 0 or 1 by default
-        img = (img > 0)
-        return img.astype('float32')
 
     def __len__(self):
         return self.num_sample

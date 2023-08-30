@@ -4,7 +4,6 @@ from torch.nn import functional as F
 
 
 def get_syncbn():
-    # return nn.BatchNorm2d
     return nn.SyncBatchNorm
 
 
