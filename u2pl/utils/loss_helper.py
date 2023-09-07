@@ -123,14 +123,11 @@ def compute_contra_memobank_loss(
         )
 
         # generate class mask for unlabeled data
-        # prob_i_classes = prob_indices_u[rep_mask_high_entropy[num_labeled :]]
         class_mask_u = torch.sum(
             prob_indices_u[:, :, :, low_rank:high_rank].eq(i), dim=3
         ).bool()
 
         # generate class mask for labeled data
-        # label_l_mask = rep_mask_high_entropy[: num_labeled] * (label_l[:, i] == 0)
-        # prob_i_classes = prob_indices_l[label_l_mask]
         class_mask_l = torch.sum(prob_indices_l[:, :, :, :low_rank].eq(i), dim=3).bool()
 
         class_mask = torch.cat(
@@ -204,7 +201,7 @@ def compute_contra_memobank_loss(
                     .unsqueeze(0)
                     .repeat(num_queries, 1, 1)
                     .cuda()
-                )  # (num_queries, 1, num_feat)
+                )
 
                 if momentum_prototype is not None:
                     if not (momentum_prototype == 0).all():
@@ -235,7 +232,7 @@ def compute_contra_memobank_loss(
             return prototype, new_keys, reco_loss / valid_seg
 
 
-def get_criterion(cfg, frequency=None):
+def get_criterion(cfg):
     cfg_criterion = cfg["criterion"]
     aux_weight = (
         cfg["net"]["aux_loss"]["loss_weight"]
@@ -249,14 +246,14 @@ def get_criterion(cfg, frequency=None):
         )
     else:
         criterion = Criterion(
-            aux_weight, ignore_index=ignore_index, **cfg_criterion["kwargs"], frequency=frequency
+            aux_weight, ignore_index=ignore_index, **cfg_criterion["kwargs"]
         )
 
     return criterion
 
 
 class Criterion(nn.Module):
-    def __init__(self, aux_weight, ignore_index=255, use_weight=False, frequency=None):
+    def __init__(self, aux_weight, ignore_index=255, use_weight=False):
         super(Criterion, self).__init__()
         self._aux_weight = aux_weight
         self._ignore_index = ignore_index
@@ -264,30 +261,29 @@ class Criterion(nn.Module):
         if not use_weight:
             self._criterion = nn.CrossEntropyLoss(ignore_index=ignore_index)
         else:
-            weights = torch.FloatTensor(frequency).cuda()
-            # weights = torch.FloatTensor(
-            #     [
-            #         0.0,
-            #         0.0,
-            #         0.0,
-            #         1.0,
-            #         1.0,
-            #         1.0,
-            #         1.0,
-            #         0.0,
-            #         0.0,
-            #         1.0,
-            #         0.0,
-            #         0.0,
-            #         1.0,
-            #         0.0,
-            #         1.0,
-            #         0.0,
-            #         1.0,
-            #         1.0,
-            #         1.0,
-            #     ]
-            # ).cuda()
+            weights = torch.FloatTensor(
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    0.0,
+                    1.0,
+                    0.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                ]
+            ).cuda()
             self._criterion = nn.CrossEntropyLoss(ignore_index=ignore_index)
             self._criterion1 = nn.CrossEntropyLoss(
                 ignore_index=ignore_index, weight=weights
@@ -379,7 +375,7 @@ class OhemCrossEntropy2d(nn.Module):
         n, c, h, w = predict.shape
         min_kept = self.min_kept // (
             factor * factor
-        )  # int(self.min_kept_ratio * n * h * w)
+        )
 
         input_label = target.ravel().astype(np.int32)
         input_prob = np.rollaxis(predict, 1).reshape((c, -1))
@@ -485,9 +481,6 @@ class OhemCrossEntropy2dTensor(nn.Module):
                     1.0507,
                 ]
             ).cuda()
-            # weight = torch.FloatTensor(
-            #    [0.4762, 0.5, 0.4762, 1.4286, 1.1111, 0.4762, 0.8333, 0.5, 0.5, 0.8333, 0.5263, 0.5882,
-            #    1.4286, 0.5, 3.3333,5.0, 10.0, 2.5, 0.8333]).cuda()
             self.criterion = torch.nn.CrossEntropyLoss(
                 reduction="mean", weight=weight, ignore_index=ignore_index
             )
@@ -512,7 +505,6 @@ class OhemCrossEntropy2dTensor(nn.Module):
 
         if self.min_kept > num_valid:
             pass
-            # print('Labels: {}'.format(num_valid))
         elif num_valid > 0:
             prob = prob.masked_fill_(~valid_mask, 1)
             mask_prob = prob[target, torch.arange(len(target), dtype=torch.long)]
