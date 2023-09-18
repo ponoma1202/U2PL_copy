@@ -117,10 +117,19 @@ U2PL
 - **seed**: set to 2 in original U2PL model
 - **output_dirpath**: specify file path for output directory for plots of tracked parameters and copy of the dictionary of the trained model
 
+### Accuracy Metrics Tracked
+The original U2PL model uses intersection over union (IoU) as its benchmark for accuracy. In the modified U2PL model, IoU remains
+the benchmark for accuracy, however, other accuracy metrics are also tracked. All plots for accuracy metrics, along with a csv file
+of all the metrics are generated in folders in the folder specified by the `output_dirpath` argument.
+
+- **IoU**: intersection over union. Tracked only for validation.
+- **accuracy**: number of pixels classified correctly / total number of pixels in image. Tracked for both training and validation
+- **per_class_accuracy_class_#**: accuracy for each respective class (21 classes in total)
+- **ARI**: adjusted random score
+
 ### Using Sbatch Files
-
-### Python Command
-
+Each sbatch file is located under the respective `experiments/...` directory. For example, to run the sbatch file for
+the semi-supervised model with the Pascal Voc dataset, go to `experiments/pascal/1464/ours/sbatch.sh`.
 
 ## Inferencing
 Use the infer.py file with the following arguments:
@@ -132,5 +141,5 @@ To compare to the original U2PL model results, download the model checkpoints fr
 
 ## Acknowledgement
 
-The `pytorch_utils` containing: `plateau_scheduler`, used for stopping the training of the model early if learning rate plateaus
+The `pytorch_utils` containing: `plateau_scheduler`, used for stopping the training of the model early if learning rate plateaus,
 and `training_stats`, used to track metadata, were taken from Michael Majursky's https://github.com/usnistgov/semantic-segmentation-unet/tree/pytorch.
