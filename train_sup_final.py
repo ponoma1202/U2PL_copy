@@ -1,7 +1,6 @@
 import argparse
 import logging
 import os
-import os.path as osp
 import pprint
 import time
 import shutil
@@ -44,16 +43,11 @@ def main():
                         handlers=[logging.StreamHandler()])
 
     cfg["exp_path"] = os.path.dirname(args.config)
-    cfg["save_path"] = os.path.join(cfg["exp_path"], cfg["saver"]["snapshot_dir"])
-
     logging.info("{}".format(pprint.pformat(cfg)))
 
     if args.seed is not None:
         print("set random seed to", args.seed)
         set_random_seed(args.seed)
-
-    if not osp.exists(cfg["saver"]["snapshot_dir"]):
-        os.makedirs(cfg["saver"]["snapshot_dir"])
 
     # Create network.
     model = ModelBuilder(cfg["net"])
@@ -204,15 +198,14 @@ def train(
             gpu_mem_percent_used = [np.round(100 * x, 1) for x in gpu_mem_percent_used]
 
             logging.info(
-                "Iter [{}/{}]\t"
+                "Iter {}\t"
                 "Time {batch_time.val:.2f} ({batch_time.avg:.2f})\t"
                 "Loss {loss.val:.4f} ({loss.avg:.4f})\t"
                 "LR {lr:.5f} ({lr:.7f})\t"
                 "cpu_mem: {cpu_mem:2.1f}%\t"
                 "gpu_mem: {gpu_mem}% of {total_mem}MiB\t"
-                 .format(
+                .format(
                     i_iter,
-                    cfg["trainer"]["epochs"] * len(data_loader),
                     batch_time=batch_times,
                     loss=losses,
                     lr=optimizer.param_groups[0]['lr'],

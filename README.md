@@ -67,6 +67,10 @@ The `data` folder should now contain at least two of the following folders:
 
 2. Replace `/path/to/resnet101.pth` at the top of the `u2pl/models/resnet.py` file under the `model_urls = {"resnet101": "/path/to/resnet101.pth"}` variable with file path of `resnet101.pth`.
 
+### Additional Set-Up Notes
+You may need to replace the relative paths for `data_root` and `data_list` values in the configuration files with explicit paths. Also edit the
+TODO's in each sbatch shell script.
+
 ### Directory Guide within U2PL project folder
 ```angular2html
 U2PL
@@ -124,7 +128,6 @@ of all the metrics are generated in folders in the folder specified by the `outp
 
 - **IoU**: intersection over union. Tracked only for validation.
 - **accuracy**: number of pixels classified correctly / total number of pixels in image. Tracked for both training and validation
-- **per_class_accuracy_class_#**: accuracy for each respective class (21 classes in total)
 - **ARI**: adjusted random score
 
 ### Using Sbatch Files

@@ -1,8 +1,8 @@
 dataset: # Required.
   type: pascal_semi
   train:
-    data_root: /home/vsp1/U2PL/data/VOC2012 #../../../../data/VOC2012
-    data_list: /home/vsp1/U2PL/data/splits/pascal/1464/labeled.txt  #../../../../data/splits/pascal/1464/labeled.txt
+    data_root: ../../../../data/VOC2012   # TODO: Replace with explicit path if necessary
+    data_list: ../../../../data/splits/pascal/1464/labeled.txt # TODO: Replace with explicit path if necessary
     flip: True
     GaussianBlur: False
     rand_resize: [0.5, 2.0]
@@ -11,12 +11,12 @@ dataset: # Required.
       type: rand
       size: [513, 513] # crop image with HxW size
   val:
-    data_root: /home/vsp1/U2PL/data/VOC2012 #../../../../data/VOC2012
-    data_list: /home/vsp1/U2PL/data/splits/pascal/1464/labeled.txt #../../../../data/splits/pascal/val.txt
+    data_root: ../../../../data/VOC2012 # TODO: Replace with explicit path if necessary
+    data_list: ../../../../data/splits/pascal/val.txt # TODO: Replace with explicit path if necessary
     crop:
       type: center
       size: [513, 513] # crop image with HxW size
-  batch_size: 2
+  batch_size: 8
   n_sup: 1464
   noise_std: 0.1
   workers: 2

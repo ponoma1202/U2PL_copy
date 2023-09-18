@@ -1,8 +1,8 @@
 dataset: # Required.
   type: pascal
   train:
-    data_root: ../../../../data/VOC2012
-    data_list: ../../../../data/splits/pascal/1464/labeled.txt
+    data_root: ../../../../data/VOC2012 # TODO: Replace with explicit path if necessary
+    data_list: ../../../../data/splits/pascal/1464/labeled.txt # TODO: Replace with explicit path if necessary
     flip: True
     GaussianBlur: False
     rand_resize: [0.5, 2.0]
@@ -11,8 +11,8 @@ dataset: # Required.
       type: rand
       size: [513, 513] # crop image with HxW size
   val:
-    data_root: ../../../../data/VOC2012
-    data_list: ../../../../data/splits/pascal/val.txt
+    data_root: ../../../../data/VOC2012 # TODO: Replace with explicit path if necessary
+    data_list: ../../../../data/splits/pascal/val.txt # TODO: Replace with explicit path if necessary
     crop:
       type: center
       size: [513, 513] # crop image with HxW size
@@ -25,23 +25,13 @@ dataset: # Required.
   ignore_label: 255
 
 trainer: # Required.
-  epochs: 80
-  start_epochs: 0
   eval_on: True
   optimizer:
     type: SGD
     kwargs:
-      lr: 0.001  # 2GPUs
+      lr: 0.001
       momentum: 0.9
       weight_decay: 0.0001
-  lr_scheduler:
-    mode: poly
-    kwargs:
-      power: 0.9
-
-saver:
-  snapshot_dir: checkpoints
-  pretrain: ''
 
 criterion:
   type: CELoss
