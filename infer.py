@@ -1,6 +1,5 @@
 import logging
 import os
-import time
 from argparse import ArgumentParser
 
 import numpy as np
@@ -15,27 +14,21 @@ from PIL import Image
 from tqdm import tqdm
 
 from u2pl.models.model_helper import ModelBuilder
-from u2pl.utils.utils import (
-    AverageMeter,
-    check_makedirs,
-    colorize,
-    convert_state_dict,
-    intersectionAndUnion,
-)
+from u2pl.utils.utils import intersectionAndUnion
 
 
 # Setup Parser
 def get_parser():
     parser = ArgumentParser(description="PyTorch Evaluation")
-    parser.add_argument("--config", type=str, default="experiments/pascal/1464/suponly/config.yaml")
+    parser.add_argument("--config", type=str, default="config.yaml")
     parser.add_argument(
         "--model_path",
         type=str,
-        default="/home/vsp1/U2PL/all_stats/resnet_remote_stats/sup_stats_no_pretrain_27-06-2023/model-state-dict.pt",        #edited this
+        default="model-state-dict.pt",
         help="evaluation model path",
     )
     parser.add_argument(
-        "--save_folder", type=str, default="sup_infer_experiment", help="results save folder"
+        "--save_folder", type=str, default="infer_results", help="results save folder"
     )
     return parser
 
@@ -61,9 +54,6 @@ def main():
     cfg_dset = cfg["dataset"]
     mean, std = cfg_dset["mean"], cfg_dset["std"]
     num_classes = cfg["net"]["num_classes"]
-    crop_size = cfg_dset["val"]["crop"]["size"]
-    crop_h, crop_w = crop_size
-
     assert num_classes > 1
 
     os.makedirs(args.save_folder, exist_ok=True)
@@ -104,21 +94,17 @@ def main():
     key = "teacher_state" if "teacher_state" in checkpoint.keys() else "model_state"
     logger.info(f"=> load checkpoint[{key}]")
 
-    saved_state_dict = checkpoint        # get Mike's model
-    #saved_state_dict = checkpoint["model_state"]           #my version
-    model.load_state_dict(saved_state_dict, strict=False)
+    model.load_state_dict(checkpoint, strict=False)
     model.cuda()
     logger.info("Load Model Done!")
 
     input_scale = [769, 769] if "cityscapes" in data_root else [513, 513]
     colormap = create_pascal_label_colormap()
 
-    # start my code
     if os.path.exists(os.path.join(args.save_folder, "iou_results")):
         print("IoU file already exists. Deleting...")
         os.remove(os.path.join(args.save_folder, "iou_results"))
     iou_folder = open(os.path.join(args.save_folder, "iou_results"), "x")
-    # end my code
 
     model.eval()
     for image_path, label_path in tqdm(data_list):
@@ -137,16 +123,13 @@ def main():
 
         color_mask = colorful(mask,colormap)
         skimage.io.imsave(os.path.join(color_folder, image_name), np.uint8(color_mask), check_contrast=False)
-
         skimage.io.imsave(os.path.join(gray_folder, image_name), np.uint8(mask), check_contrast=False)
 
-        #start my code
         label = Image.open(label_path).convert("L")
         label = np.asarray(label).astype(np.uint8)
         area_intersection, area_union, area_target = intersectionAndUnion(np.array(mask), np.array(label), cfg["net"]["num_classes"])
         iou = area_intersection / area_union
         iou_folder.write("IoU for " + str(image_name) + " is: " + str(iou) + "\n")
-        #end my code
 
 
 def colorful(mask, colormap):

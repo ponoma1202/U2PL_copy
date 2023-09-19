@@ -71,6 +71,8 @@ The `data` folder should now contain at least two of the following folders:
 You may need to replace the relative paths for `data_root` and `data_list` values in the configuration files with explicit paths. Also edit the
 TODO's in each sbatch shell script.
 
+The U2PL model used a batch size of 16, however, the replicated U2PL model could only use a batch size of 14 before running out of 80 GB of GPU memory.
+
 ### Directory Guide within U2PL project folder
 ```angular2html
 U2PL

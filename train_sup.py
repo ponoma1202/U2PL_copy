@@ -52,10 +52,7 @@ def main():
     # Create network.
     model = ModelBuilder(cfg["net"])
     modules_back = [model.encoder]
-    if cfg["net"].get("aux_loss", False):
-        modules_head = [model.auxor, model.decoder]
-    else:
-        modules_head = [model.decoder]
+    modules_head = [model.decoder]
 
     if cfg["net"].get("sync_bn", True):
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
