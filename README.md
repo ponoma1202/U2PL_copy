@@ -1,291 +1,150 @@
-# Using Unreliable Pseudo Labels
+# Using Unreliable Pseudo Labels (modified)
 
 Modified model from [Semi-Supervised Semantic Segmentation Using Unreliable Pseudo Labels](https://arxiv.org/abs/2203.03884), CVPR 2022.
 
-Refer to [U2PL GitHub](https://github.com/ponoma1202/U2PL_copy/blob/main/README.md) for the official U2PL model. 
+Refer to [U2PL GitHub](https://github.com/ponoma1202/U2PL_copy/blob/main/README.md) for the official U2PL model code. 
 
 ## Installation Guide
-After cloning,
+After cloning the repository,
 ```
 conda create -n u2pl python=3.8.16
 pip install -r requirements.txt
-pip install torch=2.0.1 torchvision=0.15.2 -f https://github.com/ponoma1202/U2PL_copy/blob/main/README.md
+conda install pytorch torchvision pytorch-cuda=11.7 -c pytorch -c nvidia
 ```
+Used pytorch version 2.0.1 and torchvision version 0.15.2.
 
-### Setting Up the Data
+## Setting Up the Data
 The U2PL model is trained on both Citiscapes and PASCAL VOC 2012 datasets.
 
-For Cityscapes:
-TODO: Copy the paper
+<details>
+  <summary><b>For Cityscapes</b></summary>
 
-For ResNet:
-TODO: copy their instructions but be more clear on specifying the path to resnet101 in the u2pl/models/resnet.py file.
+1. Download [leftImg8bit_trainvaltest.zip](https://www.cityscapes-dataset.com/downloads/)
 
-### Directory Guide
+2. Download [gtFine.zip](https://drive.google.com/file/d/10tdElaTscdhojER_Lf7XlytiyAkk7Wlg/view?usp=sharing) from Google Drive
+
+3. Unzip `gtFine` and `leftImg8bit_trainvaltest` into a new folder named `citiscapes`. 
+
+4. Move `citiscapes` folder into `data` folder.
+
+Note: both `gtFine` and `leftImg8bit_trainvaltest` contain:
+  - `train`
+  - `test`
+  - `val`
+
+</details>
+
+<details>
+  <summary><b>For ResNet</b></summary>
+
+1. Download the dataset from [Kaggle](https://www.kaggle.com/datasets/huanghanchina/pascal-voc-2012/code)
+
+2. Download [SegmentationClassAug.zip](https://www.dropbox.com/s/oeu149j8qtbs1x0/SegmentationClassAug.zip?dl=0)
+
+3. Unzip the `archive.zip` file into `data`. Unzipped file should be called `VOC2012`.
+
+4. Move `SegmentationClassAug` into the VOC2012 folder.
+
+The path to the `VOC2012` should be `U2PL/data/VOC2012`. File directory should look like this:
+- `data/VOC2012`
+    - `Annotations`
+    - `ImageSets`
+    - `JPEGImages`
+    - `SegmentationClass`
+    - `SegmentationClassAug`
+    - `SegmentationObject`
+
+</details>
+
+The `data` folder should now contain at least two of the following folders:
+- `cityscapes`
+- `splits`
+- `VOC2012`
+
+### Download Pre-trained ResNet101
+
+1. Download [resnet101.pth](https://drive.google.com/file/d/1nzSX8bX3zoRREn6WnoEeAPbKYPPOa-3Y/view?usp=sharing) file
+
+2. Replace `/path/to/resnet101.pth` at the top of the `u2pl/models/resnet.py` file under the `model_urls = {"resnet101": "/path/to/resnet101.pth"}` variable with file path of `resnet101.pth`.
+
+### Additional Set-Up Notes
+You may need to replace the relative paths for `data_root` and `data_list` values in the configuration files with explicit paths. Also edit the
+TODO's in each sbatch shell script.
+
+The U2PL model used a batch size of 16, however, the replicated U2PL model could only use a batch size of 14 before running out of 80 GB of GPU memory.
+
+### Directory Guide within U2PL project folder
+```angular2html
+U2PL
+├───data
+│   └───**splits**
+│       ├───cityscapes
+│       │   ├───1488
+│       │   ├───186
+│       │   ├───372
+│       │   └───744
+│       └───pascal
+│           ├───1323
+│           ├───1464
+│           ├───183
+│           ├───2646
+│           ├───366
+│           ├───5291
+│           ├───662
+│           ├───732
+│           └───92
+├───experiments
+│   ├───cityscapes
+│   │   └───744
+│   │       ├───**ours**
+│   │       └───suponly
+│   └───pascal
+│       └───1464
+│           ├───**ours
+│           └───suponly
+├───**pytorch_utils**
+├───u2pl
+    ├───**dataset**
+    ├───models
+    └───utils
+
+```
+
 - `data/splits` contains all labeled.txt and unlabeled.txt splits.
-- `experiments/pascal/1464/ours/config.yaml` contains config file for semi-supervised model using the PASCAL VOC dataset
+- `experiments/pascal/1464/ours/config.yaml` contains config file for semi-supervised model using the PASCAL VOC dataset. Follow similar structure to access config files for Cityscapes.
 - `pytorch_utils/lr_scheduler` contains learning rate scheduler with early stopping
 - `pytroch_utils/metadata.py` is a tracker for metadata such as training accuracy, learning rate, loss, etc
-- `u2pl/dataset/pascal_voc.py` is the DataSet class for the PASCAL VOC dataset
-- TODO: edit hierarchy of dataset and dataloader constructors to make everything more concise (basically follow Mike's tips)
+- `u2pl/dataset/pascal_voc.py` is the DataSet class for the PASCAL VOC dataset. Similar structure for Cityscapes dataset.
 
-## Input Arguments
+## Training the Model
+
+### Input Arguments
 - **config**: specify file path for configuration file (.yaml)
 - **seed**: set to 2 in original U2PL model
 - **output_dirpath**: specify file path for output directory for plots of tracked parameters and copy of the dictionary of the trained model
 
+### Accuracy Metrics Tracked
+The original U2PL model uses intersection over union (IoU) as its benchmark for accuracy. In the modified U2PL model, IoU remains
+the benchmark for accuracy, however, other accuracy metrics are also tracked. All plots for accuracy metrics, along with a csv file
+of all the metrics are generated in folders in the folder specified by the `output_dirpath` argument.
+
+- **IoU**: intersection over union. Tracked only for validation.
+- **accuracy**: number of pixels classified correctly / total number of pixels in image. Tracked for both training and validation
+- **ARI**: adjusted random score
+
+### Using Sbatch Files
+Each sbatch file is located under the respective `experiments/...` directory. For example, to run the sbatch file for
+the semi-supervised model with the Pascal Voc dataset, go to `experiments/pascal/1464/ours/sbatch.sh`.
+
 ## Inferencing
 Use the infer.py file with the following arguments:
 - **config**: specify file path for configuration file (.yaml) used during training
-- **model_path**: path to the model-state-dict.py file which should be located in the `output_dirpath`
+- **model_path**: path to the model-state-dict.py file which should be located in the `output_dirpath` folder, specified when running the model (3rd input argument).
 - **save_folder**: path to folder into which inferencing images will be saved
 
-## Results
-### PASCAL VOC 2012
-
-Labeled images are selected from the ```train``` set of original VOC, ```1,464``` images in total. 
-And the remaining ```9,118``` images are all considered as unlabeled ones.
-
-For instance, ```1/2 (732)``` represents ```732``` labeled images 
-and remaining ```9,850 (9,118 + 732)``` are unlabeled.
-
-| Method                      | 1/16 (92) | 1/8 (183) | 1/4 (366) | 1/2 (732) | Full (1464) |
-| --------------------------- | --------- | --------- | --------- | --------- | ----------- |
-| SupOnly                     | 45.77     | 54.92     | 65.88     | 71.69     | 72.50       |
-| U<sup>2</sup>PL (w/ CutMix) | 67.98     | 69.15     | 73.66     | 76.16     | 79.49       |
-
-Labeled images are selected from the ```train``` set of augmented VOC, ```10,582``` images in total.
-
-Following results are all trained under our own splits.
-Training a model on different splits is recommended to measure the performance of a method.
-You can train our U<sup>2</sup>PL on splits provided by [CPS](https://github.com/charlesCXK/TorchSemiSeg/tree/main/DATA/pascal_voc/subset_train_aug) or [ST++](https://github.com/LiheYoung/ST-PlusPlus/tree/master/dataset/splits/pascal).
-
-| Method                      | 1/16 (662) | 1/8 (1323) | 1/4 (2646) | 1/2 (5291) |
-| --------------------------- | ---------- | ---------- | ---------- | ---------- |
-| SupOnly                     | 67.87      | 71.55      | 75.80      | 77.13      |
-| U<sup>2</sup>PL (w/ CutMix) | 77.21      | 79.01      | 79.30      | 80.50      |
-
-### Cityscapes
-
-Labeled images are selected from the ```train``` set, ```2,975``` images in total. 
-
-| Method                      | 1/16 (186) | 1/8 (372) | 1/4 (744) | 1/2 (1488) |
-| --------------------------- | ---------- | --------- | --------- | ---------- |
-| SupOnly                     | 65.74      | 72.53     | 74.43     | 77.83      |
-| U<sup>2</sup>PL (w/ CutMix) | 70.30      | 74.37     | 76.47     | 79.05      |
-| U<sup>2</sup>PL (w/ AEL)    | 74.90      | 76.48     | 78.51     | 79.12      |
-
-## Checkpoints
-
-- Models on PASCAL VOC 2012 (ResNet101-DeepLabv3+) can be found [here](https://drive.google.com/drive/folders/1_BcixhrEqJEMo3lzKTKPJ_7gCWEjUBWp).
-
-- Models on Cityscapes with AEL (ResNet101-DeepLabv3+)
-
-| 1/16 (186)                                                                                         | 1/8 (372)                                                                                          | 1/4 (744)                                                                                          | 1/2 (1488)                                                                                         |
-| -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| [Google Drive](https://drive.google.com/file/d/1IZb9cAKSHajAnWYFHDq_qDecKcJMXvl5/view?usp=sharing) | [Google Drive](https://drive.google.com/file/d/1QyG-qPdjaUZ2qEkQTr70ioLeNDOI943p/view?usp=sharing) | [Google Drive](https://drive.google.com/file/d/1xgIICfZw_5bf-FFH9GtdO_85kQCnQmsT/view?usp=sharing) | [Google Drive](https://drive.google.com/file/d/1IlN5IIUMO4pZ_b_9Xo6659AbUV0dllfM/view?usp=sharing) |
-| [Baidu Drive](https://pan.baidu.com/s/1DF9WTiV2mLfY2V9SHP14_w) <br>Fetch Code: rrpd                | [Baidu Drive](https://pan.baidu.com/s/1TjtHQM2tXy0H8b-reXMHJw) <br>Fetch Code: welw                | [Baidu Drive](https://pan.baidu.com/s/1LyecRU6rPbrrxgxy2qI65w) <br>Fetch Code: qwcd                | [Baidu Drive](https://pan.baidu.com/s/1ngb7mS0I6UMj1cff_40cYg) <br>Fetch Code: 4p8r                |
-
-
-
-## Installation
-
-```bash
-git clone https://github.com/Haochen-Wang409/U2PL.git && cd U2PL
-conda create -n u2pl python=3.6.9
-conda activate u2pl
-pip install -r requirements.txt
-pip install pip install torch==1.8.1+cu102 torchvision==0.9.1+cu102 -f https://download.pytorch.org/whl/torch_stable.html
-```
-
-## Usage
-
-U<sup>2</sup>PL is evaluated on both Cityscapes and PASCAL VOC 2012 dataset.
-### Prepare Data
-
-<details>
-  <summary>For Cityscapes</summary>
-
-Download "leftImg8bit_trainvaltest.zip" from: https://www.cityscapes-dataset.com/downloads/
-
-Download "gtFine.zip" from: https://drive.google.com/file/d/10tdElaTscdhojER_Lf7XlytiyAkk7Wlg/view?usp=sharing
-
-Next, unzip the files to folder ```data``` and make the dictionary structures as follows:
-
-```angular2html
-data/cityscapes
-├── gtFine
-│   ├── test
-│   ├── train
-│   └── val
-└── leftImg8bit
-    ├── test
-    ├── train
-    └── val
-```
-
-</details>
-
-
-<details>
-  <summary>For PASCAL VOC 2012</summary>
-
-Refer to [this link](https://github.com/zhixuanli/segmentation-paper-reading-notes/blob/master/others/Summary%20of%20the%20semantic%20segmentation%20datasets.md) and download ```PASCAL VOC 2012 augmented with SBD``` dataset.
-
-And unzip the files to folder ```data``` and make the dictionary structures as follows:
-
-```angular2html
-data/VOC2012
-├── Annotations
-├── ImageSets
-├── JPEGImages
-├── SegmentationClass
-├── SegmentationClassAug
-└── SegmentationObject
-```
-</details>
-
-Finally, the structure of dictionary ```data``` should be as follows:
-
-```angular2html
-data
-├── cityscapes
-│   ├── gtFine
-│   └── leftImg8bit
-├── splits
-│   ├── cityscapes
-│   └── pascal
-└── VOC2012
-    ├── Annotations
-    ├── ImageSets
-    ├── JPEGImages
-    ├── SegmentationClass
-    ├── SegmentationClassAug
-    └── SegmentationObject
-```
-
-### Prepare Pretrained Backbone
-
-Before training, please download ResNet101 pretrained on ImageNet-1K from one of the following:
-  - [Google Drive](https://drive.google.com/file/d/1nzSX8bX3zoRREn6WnoEeAPbKYPPOa-3Y/view?usp=sharing)
-  - [Baidu Drive](https://pan.baidu.com/s/1FDQGlhjzQENfPp4HTYfbeA) Fetch Code: 3p9h
-
-After that, modify ```model_urls``` in ```semseg/models/resnet.py``` to ```</path/to/resnet101.pth>```
-
-### Train a Fully-Supervised Model
-
-For instance, we can train a model on PASCAL VOC 2012 with only ```1464``` labeled data for supervision by:
-```bash
-cd experiments/pascal/1464/suponly
-# use torch.distributed.launch
-sh train.sh <num_gpu> <port>
-
-# or use slurm
-# sh slurm_train.sh <num_gpu> <port> <partition>
-```
-Or for Cityscapes, a model supervised by only ```744``` labeled data can be trained by:
-```bash
-cd experiments/cityscapes/744/suponly
-# use torch.distributed.launch
-sh train.sh <num_gpu> <port>
-
-# or use slurm
-# sh slurm_train.sh <num_gpu> <port> <partition>
-```
-After training, the model should be evaluated by
-```bash
-sh eval.sh
-```
-### Train a Semi-Supervised Model
-
-We can train a model on PASCAL VOC 2012 with ```1464``` labeled data and ```9118``` unlabeled data for supervision by:
-```bash
-cd experiments/pascal/1464/ours
-# use torch.distributed.launch
-sh train.sh <num_gpu> <port>
-
-# or use slurm
-# sh slurm_train.sh <num_gpu> <port> <partition>
-```
-Or for Cityscapes, a model supervised by ```744``` labeled data and ```2231``` unlabeled data can be trained by:
-```bash
-cd experiments/cityscapes/744/ours
-# use torch.distributed.launch
-sh train.sh <num_gpu> <port>
-
-# or use slurm
-# sh slurm_train.sh <num_gpu> <port> <partition>
-```
-After training, the model should be evaluated by
-```bash
-sh eval.sh
-```
-
-### Train a Semi-Supervised Model on Cityscapes with AEL
-
-First, you should switch the branch:
-```bash
-git checkout with_AEL
-```
-Then, we can train a model supervised by ```744``` labeled data and ```2231``` unlabeled data by:
-```bash
-cd experiments/city_744
-# use torch.distributed.launch
-sh train.sh <num_gpu> <port>
-
-# or use slurm
-# sh slurm_train.sh <num_gpu> <port> <partition>
-```
-After training, the model should be evaluated by
-```bash
-sh eval.sh
-```
-
-### Note
-```<num_gpu>``` means the number of GPUs for training.
-
-To reproduce our results, we recommend you follow the settings:
-- Cityscapes: ```4 * V100 (32G)``` for SupOnly and ```8 * V100 (32G)``` for Semi-Supervised
-- PASCAL VOC 2012: ```2 * V100 (32G)``` for SupOnly and ```4 * V100 (32G)``` for Semi-Supervised
-
-If you got ```CUDA Out of Memory``` error, please try training our method in [fp16](https://github.com/NVIDIA/apex) mode.
-Or, change the ```lr``` in ```config.yaml``` in a linear manner (*e.g.*, if you want to train a SupOnly model on Cityscapes with 8 GPUs, 
-you are recommended to change the ```lr``` to ```0.02```).
-
-If you want to train a model on other split, you need to modify ```data_list``` and ```n_sup``` in ```config.yaml```.
-
-Due to the randomness of function ```torch.nn.functional.interpolate``` when ```mode="bilinear"```, 
-the results of semantic segmentation will not be the same EVEN IF a fixed random seed is set.
-
-Therefore, we recommend you run 3 times and get the average performance.
-
-## License
-
-This project is released under the [Apache 2.0](LICENSE) license.
+To compare to the original U2PL model results, download the model checkpoints from the U2PL GitHub README file.
 
 ## Acknowledgement
 
-The contrastive learning loss and strong data augmentation (CutMix, CutOut, and ClassMix) 
-are borrowed from **ReCo**.
-We reproduce our U<sup>2</sup>PL based on **AEL** on branch ```with_AEL```.
-- ReCo: https://github.com/lorenmt/reco
-- AEL: https://github.com/hzhupku/SemiSeg-AEL
-
-Thanks a lot for their great work!
-
-## Citation
-```bibtex
-@inproceedings{wang2022semi,
-    title={Semi-Supervised Semantic Segmentation Using Unreliable Pseudo Labels},
-    author={Wang, Yuchao and Wang, Haochen and Shen, Yujun and Fei, Jingjing and Li, Wei and Jin, Guoqiang and Wu, Liwei and Zhao, Rui and Le, Xinyi},
-    booktitle={Proceedings of the IEEE/CVF International Conference on Computer Vision and Pattern Recognition (CVPR)},
-    year={2022}
-}
-```
-
-## Contact
-
-- Yuchao Wang, 44442222@sjtu.edu.cn
-- Haochen Wang, wanghaochen2022@ia.ac.cn
-- Jingjing Fei, feijingjing1@sensetime.com
-- Wei Li, liwei1@sensetime.com
+The `pytorch_utils` containing: `plateau_scheduler`, used for stopping the training of the model early if learning rate plateaus,
+and `training_stats`, used to track metadata, were taken from Michael Majursky's https://github.com/usnistgov/semantic-segmentation-unet/tree/pytorch.
