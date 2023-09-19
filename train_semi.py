@@ -1,7 +1,6 @@
 import argparse
 import logging
 import os
-import os.path as osp
 import time
 
 import numpy as np
@@ -10,6 +9,7 @@ import torch.nn.functional as F
 import yaml
 import shutil
 from pytorch_utils import lr_scheduler as lr_scheduler_custom
+from sklearn.metrics import adjusted_rand_score
 from pytorch_utils import metadata
 import copy
 import psutil
@@ -47,15 +47,9 @@ def main():
                         format="%(asctime)s [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
                         handlers=[logging.StreamHandler()])
 
-    cfg["exp_path"] = os.path.dirname(args.config)
-    cfg["save_path"] = os.path.join(cfg["exp_path"], cfg["saver"]["snapshot_dir"])
-
     if args.seed is not None:
         print("set random seed to", args.seed)
         set_random_seed(args.seed)
-
-    if not osp.exists(cfg["saver"]["snapshot_dir"]):
-        os.makedirs(cfg["saver"]["snapshot_dir"])
 
     # Create network
     model = ModelBuilder(cfg["net"])
@@ -263,6 +257,8 @@ def train(
 
             accuracy = torch.mean((label_u_aug == label_u / label_u.numel()).type(torch.FloatTensor))
             train_stats.append_accumulate('teacher_pseudo_labeling_accuracy', accuracy.item())
+            teacher_ARI = ARI(label_u_aug.cpu().detach().numpy(), label_u.cpu().detach().numpy(), batch_size)
+            train_stats.append_accumulate("teacher_ARI", teacher_ARI)
 
             # apply strong data augmentation: cutout, cutmix, or classmix
             if np.random.uniform(0, 1) < 0.5 and cfg["trainer"]["unsupervised"].get(
@@ -293,6 +289,8 @@ def train(
             pred_student = torch.argmax(pred_u_large, dim=1)
             accuracy = torch.mean((pred_student == label_u / label_u.numel()).type(torch.FloatTensor))
             train_stats.append_accumulate('student_pseudo_labeling_accuracy', accuracy.item())
+            student_ARI = ARI(pred_student.cpu().detach().numpy(), label_u.cpu().detach().numpy(),batch_size)
+            train_stats.append_accumulate("student_ARI", student_ARI)
 
             # supervised loss
             sup_loss = sup_loss_fn(pred_l_large, label_l.clone())
@@ -504,8 +502,18 @@ def train(
 
     train_stats.close_accumulate(epoch, 'teacher_pseudo_labeling_accuracy', method='avg')
     train_stats.close_accumulate(epoch, 'student_pseudo_labeling_accuracy', method='avg')
+    train_stats.close_accumulate(epoch, "student_ARI", method='avg')
+    train_stats.close_accumulate(epoch, "teacher_ARI", method='avg')
     train_stats.add(epoch, 'train_wall_time', time.time() - start_time)
 
+
+def ARI(pred, label, batch_size):
+    ari_accuracy = []
+    for img in range(batch_size):
+        pred_cpy = pred[img]
+        label_cpy = label[img]
+        ari_accuracy.append(adjusted_rand_score(label_cpy.flatten(), pred_cpy.flatten()))
+    return np.mean(ari_accuracy)
 
 def get_gpu_memory():
     command = "nvidia-smi --query-gpu=memory.used --format=csv"
@@ -586,7 +594,6 @@ def validate(
     for i, iou in enumerate(iou_class):
         logging.info(" * class [{}] IoU {:.2f}".format(i, iou * 100))
     logging.info(" * epoch {} mIoU {:.2f}".format(epoch, mIoU * 100))
-
 
 if __name__ == "__main__":
     main()
