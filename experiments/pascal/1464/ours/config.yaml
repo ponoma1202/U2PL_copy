@@ -19,7 +19,7 @@ dataset: # Required.
   batch_size: 14
   n_sup: 1464
   noise_std: 0.1
-  workers: 8
+  workers: 2
   mean: [123.675, 116.28, 103.53]
   std: [58.395, 57.12, 57.375]
   ignore_label: 255
