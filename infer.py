@@ -10,7 +10,6 @@ import torch.nn.parallel
 import torch.optim
 import torch.utils.data
 import yaml
-from PIL import Image
 from tqdm import tqdm
 
 from u2pl.models.model_helper import ModelBuilder
@@ -101,11 +100,6 @@ def main():
     input_scale = [769, 769] if "cityscapes" in data_root else [513, 513]
     colormap = create_pascal_label_colormap()
 
-    if os.path.exists(os.path.join(args.save_folder, "iou_results")):
-        print("IoU file already exists. Deleting...")
-        os.remove(os.path.join(args.save_folder, "iou_results"))
-    iou_folder = open(os.path.join(args.save_folder, "iou_results"), "x")
-
     model.eval()
     for image_path, label_path in tqdm(data_list):
         image_name = image_path.split("/")[-1]
@@ -124,12 +118,6 @@ def main():
         color_mask = colorful(mask,colormap)
         skimage.io.imsave(os.path.join(color_folder, image_name), np.uint8(color_mask), check_contrast=False)
         skimage.io.imsave(os.path.join(gray_folder, image_name), np.uint8(mask), check_contrast=False)
-
-        label = Image.open(label_path).convert("L")
-        label = np.asarray(label).astype(np.uint8)
-        area_intersection, area_union, area_target = intersectionAndUnion(np.array(mask), np.array(label), cfg["net"]["num_classes"])
-        iou = area_intersection / area_union
-        iou_folder.write("IoU for " + str(image_name) + " is: " + str(iou) + "\n")
 
 
 def colorful(mask, colormap):

@@ -43,7 +43,7 @@ net: # Required.
   sync_bn: True
   ema_decay: 0.99
   encoder:
-    type: u2pl.models.resnet.resnet101      #how does this find the resnet101 path? -VP
+    type: u2pl.models.resnet.resnet101
     kwargs:
       multi_grid: True
       zero_init_residual: True
