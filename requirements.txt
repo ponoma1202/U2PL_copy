@@ -11,6 +11,3 @@ pandas
 matplotlib
 psutil
 sklearn
-mrcfile
-imagecodecs
-albumentations
