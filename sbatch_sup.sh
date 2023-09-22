@@ -15,5 +15,5 @@ source #TODO: replace with path to your conda.sh file here
 conda activate u2pl
 
 # TODO: specify path to train_sup.py file and config file
-python train_sup.py --config=config.yaml --seed 2 --output_dirpath=./out
+python train_sup.py --config=config.yaml --seed 2 --output_dirpath=./sup_out
 

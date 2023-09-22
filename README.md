@@ -78,34 +78,21 @@ The U2PL model used a batch size of 16, however, the replicated U2PL model could
 ```angular2html
 U2PL
 ├───data
-│   └───**splits**
+│   └───splits**
 │       ├───cityscapes
-│       │   ├───1488
-│       │   ├───186
-│       │   ├───372
-│       │   └───744
 │       └───pascal
-│           ├───1323
-│           ├───1464
-│           ├───183
-│           ├───2646
-│           ├───366
-│           ├───5291
-│           ├───662
-│           ├───732
-│           └───92
 ├───experiments
 │   ├───cityscapes
 │   │   └───744
-│   │       ├───**ours**
+│   │       ├───ours
 │   │       └───suponly
 │   └───pascal
 │       └───1464
-│           ├───**ours
+│           ├───ours**
 │           └───suponly
-├───**pytorch_utils**
+├───pytorch_utils**
 ├───u2pl
-    ├───**dataset**
+    ├───dataset**
     ├───models
     └───utils
 
